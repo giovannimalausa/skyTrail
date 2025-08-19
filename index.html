@@ -1,20 +1,69 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flight Visualization</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <main>
-        <!-- <h1>Flight Visualization</h1> -->
-        <div id="canvas-container"></div>
-    </main>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Flight Visualization</title>
+        <link rel="stylesheet" href="style.css">
 
-    <!-- Load p5.js from CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
-    <!-- Your sketch -->
-    <script src="sketch.js"></script>
-</body>
+    </head>
+    <body>
+        <!-- Welcome / Upload Screen -->
+        <section id="welcome" class="welcome">
+        <div class="welcome-card">
+                <div class="app-mark">✈️</div>
+                <h1>Welcome to SkyTrail</h1>
+                <p class="subtitle">Turn your flight data into generative art.</p>
+
+                <div id="drop-zone" class="drop-zone" aria-label="CSV drop area">
+                    <input id="csv-input" type="file" accept=".csv" aria-label="Choose CSV" />
+                    <div class="dz-inner">
+                        <strong>Drop your .csv here</strong>
+                        <span>or click to choose a file</span>
+                    </div>
+                </div>
+
+                <p class="hint">Expected headers: <code>Position, Altitude, Speed, Direction, UTC</code></p>
+            </div>
+        </section>
+
+        <!-- Dashboard (hidden until a CSV is loaded) -->
+        <section id="dashboard" class="dashboard hidden">
+            <div id="canvas-container"></div>
+            <aside id="info-card" class="info-card">
+                <div class="title">Flight Path</div>
+                <div id="flight-path-canvas"></div>
+
+                <div class="title">Point Details</div>
+                <div class="info-row"><span class="k">Date/Time</span><span id="info-date" class="v">—</span></div>
+                <div class="info-row"><span class="k">Since Takeoff</span><span id="info-since" class="v">—</span></div>
+                <div class="info-row"><span class="k">Until Landing</span><span id="info-until" class="v">—</span></div>
+                <div class="info-row"><span class="k">Ground Speed</span><span id="info-speed" class="v">—</span></div>
+                <div class="info-row"><span class="k">Heading</span><span id="info-heading" class="v">—</span></div>
+                <div class="info-row"><span class="k">Location</span><span id="info-location" class="v">—</span></div>
+                <div class="info-row"><span class="k">Altitude</span><span id="info-altitude" class="v">—</span></div>
+                <div class="info-row"><span class="k">Tilt (FPA)</span><span id="info-tilt" class="v">—</span></div>
+            </aside>
+
+            
+
+            <div id="heading-plane" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 111 100" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                    <path d="M110.777 49.707C110.729 43.9941 102.965 39.8438 93.6389 39.8438H73.9608C71.2265 39.8438 70.2012 39.4043 68.5898 37.5488L35.7773 1.75781C34.752 0.585938 33.4824 0 32.0176 0H26.3535C25.084 0 24.3516 1.12305 24.9863 2.49023L41.8809 39.8438L17.0762 42.6758L8.23825 26.4648C7.60345 25.2441 6.52925 24.707 4.91795 24.707H2.81835C1.54875 24.707 0.71875 25.5371 0.71875 26.8066V72.6074C0.71875 73.877 1.54875 74.6582 2.81835 74.6582H4.91795C6.52925 74.6582 7.60345 74.1211 8.23825 72.9492L17.0762 56.7383L41.8809 59.5703L24.9863 96.9238C24.3516 98.2422 25.084 99.4141 26.3535 99.4141H32.0176C33.4824 99.4141 34.752 98.7793 35.7773 97.6562L68.5898 61.8164C70.2012 60.0098 71.2265 59.5703 73.9608 59.5703H93.6389C102.965 59.5703 110.729 55.3711 110.777 49.707Z" fill="white" fill-opacity="0.85"/>
+                </svg>
+            </div>
+
+            <div id="cursor-plane" aria-hidden="true">
+            <!-- Plane SVG pointing right -->
+                <svg width="28" height="28" viewBox="0 0 111 100" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                    <path d="M110.777 49.707C110.729 43.9941 102.965 39.8438 93.6389 39.8438H73.9608C71.2265 39.8438 70.2012 39.4043 68.5898 37.5488L35.7773 1.75781C34.752 0.585938 33.4824 0 32.0176 0H26.3535C25.084 0 24.3516 1.12305 24.9863 2.49023L41.8809 39.8438L17.0762 42.6758L8.23825 26.4648C7.60345 25.2441 6.52925 24.707 4.91795 24.707H2.81835C1.54875 24.707 0.71875 25.5371 0.71875 26.8066V72.6074C0.71875 73.877 1.54875 74.6582 2.81835 74.6582H4.91795C6.52925 74.6582 7.60345 74.1211 8.23825 72.9492L17.0762 56.7383L41.8809 59.5703L24.9863 96.9238C24.3516 98.2422 25.084 99.4141 26.3535 99.4141H32.0176C33.4824 99.4141 34.752 98.7793 35.7773 97.6562L68.5898 61.8164C70.2012 60.0098 71.2265 59.5703 73.9608 59.5703H93.6389C102.965 59.5703 110.729 55.3711 110.777 49.707Z" fill="white" fill-opacity="0.85"/>
+                </svg>
+            </div>
+        </section>
+
+        <!-- Load p5.js from CDN -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+        <!-- Sketch -->
+        <script src="sketch.js"></script>
+    </body>
 </html>
