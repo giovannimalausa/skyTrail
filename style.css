@@ -117,6 +117,9 @@ h1 {
     bottom: 24px;
     left: 24px;
     width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
     background: var(--card);
     border: 1px solid var(--ring);
     border-radius: 14px;
@@ -143,6 +146,7 @@ h1 {
 #info-card .v {
     color: var(--txt);
     font-variant-numeric: tabular-nums;
+    text-align: end;
 }
 
 #cursor-plane, #heading-plane {

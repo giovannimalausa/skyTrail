@@ -75,7 +75,10 @@ function setup() {
     heading: get('info-heading'),
     loc:     get('info-location'),
     alt:     get('info-altitude'),
-    tilt:    get('info-tilt')
+    tilt:    get('info-tilt'),
+    callsign: get('info-callsign'),
+    takeoffActual: get('info-actual-takeoff-time'),
+    landingActual: get('info-actual-landing-time')
   };
   if (!infoCard) {
     console.warn('info-card element not found in HTML. Add it to index.html.');
@@ -169,8 +172,8 @@ function drawAltitudeRings(center, baseR, varR) {
   textSize(8);
   for (let alt = minAlt; alt <= maxAlt; alt += step) {
     const rr = baseR + map(alt, altMin, altMax, 0, varR, true);
-    const fl = Math.round(alt / 100);             // FL label (hundreds of feet)
-    const kft = Math.round(alt / 1000);           // thousands of feet for parity
+    const fl = Math.round(alt / 100); // FL label (hundreds of feet)
+    const kft = Math.round(alt / 1000); // thousands of feet for parity
     const relevant = trackDir
       ? (trackDir === 'E' ? (kft % 2 === 1)       // odd thousands → eastbound
                           : (kft % 2 === 0))      // even thousands → westbound
@@ -205,9 +208,9 @@ function buildRosettePoints() {
 
   let pts = [];
   for (let i = 0; i < n; i++) {
-    const t = i / (n - 1);
-    const ang = HALF_PI + t * TWO_PI; // start at 6 o'clock, progress clockwise
     const row = rows[i];
+    const t = timeFracForRow(row, i, n);
+    const ang = HALF_PI + t * TWO_PI; // start at 6 o'clock, progress clockwise
     const rr = baseR + map(row.alt, altMin, altMax, 0, varR, true);
     const wobble = map(row.spd, range.spdMin, range.spdMax, 0, 6);
     const x = center.x + cos(ang) * (rr + cos(radians(row.hdg)) * wobble);
@@ -281,9 +284,25 @@ function getIndexFromMouse(center, count) {
   let t = (ang - HALF_PI) % TWO_PI;
   if (t < 0) t += TWO_PI;
   t /= TWO_PI; // 0..1
+
+  // If we have real timestamps, choose the row whose time is closest to the mouse time.
+  if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+    const targetMs = startMs + t * (endMs - startMs);
+    let bestIdx = 0;
+    let bestDiff = Infinity;
+    for (let i = 0; i < rows.length; i++) {
+      const tm = rows[i] && rows[i].tMs;
+      if (!Number.isFinite(tm)) continue;
+      const d = Math.abs(tm - targetMs);
+      if (d < bestDiff) { bestDiff = d; bestIdx = i; }
+    }
+    if (bestDiff !== Infinity) return constrain(bestIdx, 0, count - 1);
+  }
+
+  // Fallback: old index-based mapping
   const idx = Math.round(t * (count - 1));
   return constrain(idx, 0, count - 1);
-}
+  }
 
 function drawIndicator(pts, i) {
   const a = pts[i];
@@ -404,7 +423,7 @@ function updateInfoCard(p) {
   const locStr = formatLatLon(p.lat, p.lon);
 
   const refs = window.__infoRefs || {};
-  const set = (el, v) => { if (el) el.textContent = v; };
+  const set = (el, v) => { if (el) el.innerHTML = v; };
 
   if (refs.date || refs.since || refs.until || refs.speed || refs.heading || refs.loc || refs.alt || refs.tilt) {
     set(refs.date,  tStr);
@@ -466,7 +485,7 @@ function formatUTC(ms) {
   const HH = String(d.getUTCHours()).padStart(2, '0');
   const MM = String(d.getUTCMinutes()).padStart(2, '0');
   const SS = String(d.getUTCSeconds()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd} ${HH}:${MM}:${SS} UTC`;
+  return `${yyyy}-${mm}-${dd}<br>${HH}:${MM}:${SS} UTC`;
 }
 
 function formatLatLon(lat, lon) {
@@ -491,8 +510,25 @@ function initialBearingDeg(lat1, lon1, lat2, lon2) {
   return θ;
 }
 
-function niceCeilToStep(v, step) { return Math.ceil(v / step) * step; }
-function niceFloorToStep(v, step) { return Math.floor(v / step) * step; }
+function niceCeilToStep(v, step) {
+  return Math.ceil(v / step) * step;
+}
+function niceFloorToStep(v, step) {
+  return Math.floor(v / step) * step;
+}
+
+function fracFromTimeMs(ms) {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs || !Number.isFinite(ms)) return null;
+  return constrain((ms - startMs) / (endMs - startMs), 0, 1);
+}
+
+function timeFracForRow(row, i, n) {
+  const ft = fracFromTimeMs(row && row.tMs);
+  if (ft !== null) return ft;
+  // Fallback to index spacing if this row has no timestamp
+  return (n > 1) ? (i / (n - 1)) : 0;
+}
+
 // --- CSV parsing and data helpers for upload flow ---
 function resetDataHolders() {
   rows = [];
@@ -552,7 +588,12 @@ function finalizeAfterRowsParsed() {
   trail = createGraphics(width, height);
   trail.colorMode(HSB, 360, 100, 100, 100);
   trail.clear();
-
+  {
+    // Set actual takeoff/landing UTC time fields in the info card (static, does not update)
+    const refs = window.__infoRefs || {};
+    if (refs.takeoffActual) refs.takeoffActual.innerHTML = actualTakeOffTime || '—';
+    if (refs.landingActual) refs.landingActual.innerHTML = actualLandingTime || '—';
+  }
 }
 
 // --- Robust CSV line splitter and unquote helper ---
@@ -604,10 +645,18 @@ function parseFromCSVText(text) {
   const iHdg = findIdx('Direction');
   const iUtc = findIdx('UTC');
   const iTs  = findIdx('Timestamp');
+  const iCallsign = findIdx('Callsign');
+
+  let callsignVal = '';
 
   for (let li = 1; li < lines.length; li++) {
     const cols = splitCSVLine(lines[li]);
     if (!cols.length) continue;
+
+    // Capture callsign if available and not already captured
+    if (iCallsign >= 0 && !callsignVal) {
+      callsignVal = unquote(cols[iCallsign] || '');
+    }
 
     const posRaw = (iPos >= 0) ? cols[iPos] : '';
     const pos = unquote(posRaw);
@@ -639,6 +688,9 @@ function parseFromCSVText(text) {
   }
 
   finalizeAfterRowsParsed();
+  // Update the DOM element for callsign
+  const csEl = document.getElementById('info-callsign');
+  if (csEl) csEl.textContent = callsignVal || '—';
 }
 
 // MINIMAP
