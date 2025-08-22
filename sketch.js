@@ -9,20 +9,29 @@ let rows = [];
 let bounds = { latMin:  1e9, latMax: -1e9, lonMin:  1e9, lonMax: -1e9 };
 let range  = { altMin:  1e9, altMax: -1e9, spdMin: 1e9, spdMax: -1e9 };
 let proj   = { margin: 60 }; // pixels
-let trail; // offscreen buffer for persistent drawing
-let trackDir = null; // 'E' or 'W' by overall course
+let trail; // Off-screen graphics buffer to draw persistent trail (rosette lines)
+let trackDir = null; // Overall track direction: 'E' (eastbound) or 'W' (westbound)
 
+// DOM info card panel and references to its fields
 let infoCard; // DOM panel with live data
 let __infoRefs; // populated in setup when HTML elements exist
-let selectedIdx = 0; // current index picked from mouse angle
-let startMs = null, endMs = null; // UTC times (ms since epoch)
-const KNOT_TO_FPS = 1.68781; // knots -> feet/second
+
+let selectedIdx = 0; // Currently selected point index (based on mouse position)
+
+// Flight start and end times (milliseconds since epoch)
+let startMs = null, endMs = null;
+
+// Detected takeoff/landing times (altitude transition-based)
 let actualTakeOffMs = null, actualLandingMs = null; // computed from altitude transitions
 let actualTakeOffTime = null, actualLandingTime = null; // formatted UTC strings
 
-// Minimap track
+// Constant to convert speed from knots to feet per second
+const KNOT_TO_FPS = 1.68781; // knots -> feet/second
+
+// Global state shared with the minimap (used in `minimapP5`)
 window.skyTrailState = {
   get track() {
+    // Return simplified track with only lat/lon
     return (rows || []).map(r => ({ lat: r.lat, lon: r.lon }));
   },
   get cursorIndex() {
@@ -30,25 +39,24 @@ window.skyTrailState = {
   }
 };
 
-// --- Cursor plane as SVG overlay (DOM) ---
-let planeEl = null; // DOM element holding the SVG cursor
+// DOM element for SVG plane icon (the cursor that follows the path)
+let planeEl = null;
 
 // Fine-tuning for visual centering of the SVG cursor on the rosette path
 const CURSOR_INWARD_PX = 2;   // radial nudge toward center (px).
-const CURSOR_ROT_DEG   = 0;   // tiny extra rotation if your SVG isn't perfectly right-pointing.
+const CURSOR_ROT_DEG = 0;   // extra rotation
 
-// --- Heading indicator (SVG DOM) ---
-let headingPlaneEl = null;     // DOM element for the heading indicator (SVG)
-
+// DOM element for heading indicator SVG (in center of rosette)
+let headingPlaneEl = null;
 const HEADING_PLANE_SIZE_PX = 28; // size of the heading SVG in pixels
 
-// UI / Artwork params
+// UI configuration for ring step, transparency, etc.
 const UI = {
-  margin: 24,
-  ringStep: 1000, // altitude step for concentric rings (feet)
-  ringAlpha: 25, // opacity for rings
-  labelAlpha: 70,
-  nonRelevantRingAlpha: 5
+  margin: 24, // margin from canvas edges
+  ringStep: 1000, // Step between altitude rings (in feet)
+  ringAlpha: 25, // Opacity for visible rings
+  nonRelevantRingAlpha: 5, // Opacity for non-relevant rings
+  labelAlpha: 70 // Opacity for labels
 };
 
 
@@ -59,12 +67,12 @@ function preload() {
 }
 
 function setup() {
-  let c = createCanvas(windowWidth, windowHeight);
+  let c = createCanvas(windowWidth, windowHeight); // full window canvas
   c.parent("canvas-container");
   colorMode(HSB, 360, 100, 100, 100);
   pixelDensity(1);
 
-  // Side info card. Cache references to fields.
+  // Side info card. Cache references to DOM elements (fields) inside the side panel
   infoCard = document.getElementById('info-card');
   const get = (id) => document.getElementById(id);
   window.__infoRefs = {
@@ -191,7 +199,7 @@ function drawAltitudeRings(center, baseR, varR) {
       fill(0, 0, 100, UI.labelAlpha);
       textAlign(CENTER, BOTTOM);
       const flStr = `FL${nf(fl, 3)}`; // pad to 3 digits
-      text(flStr, center.x, center.y - rr - 6);
+      text(flStr, center.x, center.y - rr - 2);
       stroke(0, 0, 100, UI.ringAlpha);
     }
   }
