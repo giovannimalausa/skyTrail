@@ -3,18 +3,27 @@
 //   S -> save PNG of the current rosette
 // =============================================================
 
-let table;
 let rows = [];
 
-let bounds = { latMin:  1e9, latMax: -1e9, lonMin:  1e9, lonMax: -1e9 };
+// Initialize lat/lon bounds with extreme values (±1e9) so that any real coordinate
+// from the CSV (lat ∈ [-90,+90], lon ∈ [-180,+180]) will always replace them.
+// This avoids special-case logic for the first data point and ensures min()/max()
+// comparisons work correctly from the start.
+let bounds = { latMin:  1e9, latMax: -1e9, lonMin:  1e9, lonMax: -1e9 }; // object that stores the geographical limits of the flight data
+
+// Track overall min/max altitude (ft) and speed (knots) across the dataset.
+// Used only for visualization scaling in the rosette:
+// - altitude → controls radius of rings and plotted path
+// - speed    → controls stroke brightness/thickness
+// Initialized with ±1e9 so first real value always replaces the default.
 let range  = { altMin:  1e9, altMax: -1e9, spdMin: 1e9, spdMax: -1e9 };
-let proj   = { margin: 60 }; // pixels
+
 let trail; // Off-screen graphics buffer to draw persistent trail (rosette lines)
 let trackDir = null; // Overall track direction: 'E' (eastbound) or 'W' (westbound)
 
 // DOM info card panel and references to its fields
 let infoCard; // DOM panel with live data
-let __infoRefs; // populated in setup when HTML elements exist
+let infoRefs; // populated in setup when HTML elements exist
 
 let selectedIdx = 0; // Currently selected point index (based on mouse position)
 
@@ -28,10 +37,13 @@ let actualTakeOffTime = null, actualLandingTime = null; // formatted UTC strings
 // Constant to convert speed from knots to feet per second
 const KNOT_TO_FPS = 1.68781; // knots -> feet/second
 
-// Global state shared with the minimap (used in `minimapP5`)
+// GETTER that returns a simplified flight track as an array of {lat, lon}.
+// Used by the minimap to draw the flight path without needing altitude, speed, etc.
 window.skyTrailState = {
   get track() {
-    // Return simplified track with only lat/lon
+    // From rows[], extract only {lat, lon} for each entry.
+    // (rows || []) ensures there's always an array (fallback = []).
+    // .map() transforms each row into a simpler object containing only coordinates
     return (rows || []).map(r => ({ lat: r.lat, lon: r.lon }));
   },
   get cursorIndex() {
@@ -59,13 +71,6 @@ const UI = {
   labelAlpha: 70 // Opacity for labels
 };
 
-
-
-function preload() {
-  // No default CSV load; user uploads from the welcome screen.
-  table = null;
-}
-
 function setup() {
   let c = createCanvas(windowWidth, windowHeight); // full window canvas
   c.parent("canvas-container");
@@ -73,9 +78,9 @@ function setup() {
   pixelDensity(1);
 
   // Side info card. Cache references to DOM elements (fields) inside the side panel
-  infoCard = document.getElementById('info-card');
-  const get = (id) => document.getElementById(id);
-  window.__infoRefs = {
+  infoCard = document.getElementById('left-info-card');
+  const get = (id) => document.getElementById(id); // helper function that gets an element from the DOM by its ID
+  window.infoRefs = {
     date:    get('info-date'),
     since:   get('info-since'),
     until:   get('info-until'),
@@ -89,45 +94,73 @@ function setup() {
     landingActual: get('info-actual-landing-time')
   };
   if (!infoCard) {
-    console.warn('info-card element not found in HTML. Add it to index.html.');
+    console.warn('left-info-card element not found in HTML. Add it to index.html.');
   }
 
   // Wire up welcome/upload UI and swap screens after upload
-  const dash = document.getElementById('dashboard');
+  const dashboard = document.getElementById('dashboard');
   const welcome = document.getElementById('welcome');
   const dz = document.getElementById('drop-zone');
   const fileEl = document.getElementById('csv-input');
 
   if (dz && fileEl) {
-    const onFiles = (files) => {
-      const f = files && files[0];
-      if (!f) return;
+    const onFiles = (files) => { // arrow function that handles file uploads
+      const f = files && files[0]; // only process the first file if there's more than one
+      if (!f) return; // return early and do nothing if no file is selected
+
+      // Create a new FileReader instance to read the file's contents.
+      // (FileReader is a browser API that allows us to read files from the user's computer as text or data URLs.)
       const reader = new FileReader();
+
+      // Set up the onload event handler, which will be called once the file has been successfully read.
+      // This function receives an event object 'e' containing the file data.
       reader.onload = (e) => {
-        parseFromCSVText(String(e.target.result));
+        // 'e.target.result' contains the contents of the file as a string.
+        parseFromCSVText(String(e.target.result)); // Parse the uploaded CSV text and update the app's data structures.
 
-        // Swap screens
+        // Hide the welcome screen to transition away from the file upload UI.
         if (welcome) welcome.classList.add('hidden');
-        if (dash) dash.classList.remove('hidden');
+        // Show the dashboard, which displays the flight visualization and info.
+        if (dashboard) dashboard.classList.remove('hidden');
 
-        // Initialize or update minimap
-        if (!minimapP5) {
+        // If the minimap does not exist yet (first upload), create it now to display the flight path.
+        // If it already exists (user uploads a new file), rebuild it to reflect the new data.
+        if (!minimap) {
           createMinimap();
         } else {
-          minimapP5.rebuild();
+          minimap.rebuild();
         }
-
       };
+
+      // Start reading the file as plain text.
+      // This triggers the reader.onload handler above once reading is complete.
       reader.readAsText(f);
     };
 
-    fileEl.addEventListener('change', (ev) => onFiles(ev.target.files));
+    // Listen for the 'change' event on the file input element.
+    // This event fires when the user selects a file using the file picker dialog.
+    fileEl.addEventListener('change', (ev) => {
+      // ev.target.files contains the list of files selected by the user.
+      // Pass ev.target.files to onFiles so it can process the uploaded file(s).
+      onFiles(ev.target.files);
+    });
 
-    dz.addEventListener('dragover', (ev) => { ev.preventDefault(); dz.classList.add('hover'); });
-    dz.addEventListener('dragleave', () => dz.classList.remove('hover'));
+    // Listen for the 'dragover' event on the drop zone.
+    dz.addEventListener('dragover', (ev) => {
+      ev.preventDefault(); // Required to enable drop (without it, the browser may try to open the file instead of uploading).
+      dz.classList.add('hover'); // Add a visual hover effect
+    });
+
+    // Listen for the 'dragleave' event on the drop zone.
+    dz.addEventListener('dragleave', () => dz.classList.remove('hover')); // Remove the hover class to update the visual feedback.
+
+    // Listen for the 'drop' event on the drop zone (fires when the user drops one or more files).
+    // Extract the files from ev.dataTransfer.files and call onFiles again to process them.
     dz.addEventListener('drop', (ev) => {
-      ev.preventDefault(); dz.classList.remove('hover');
+      ev.preventDefault(); // Prevent default browser behavior
+      dz.classList.remove('hover'); // Remove hover effect
       if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length) {
+        // Pass the dropped files to onFiles for processing
         onFiles(ev.dataTransfer.files);
       }
     });
@@ -142,7 +175,6 @@ function setup() {
   // Hook a separate overlay element for the heading indicator
   headingPlaneEl = document.getElementById('heading-plane');
   headingPlaneEl.style.transform = 'translate(-10000px,-10000px)';
-
 
   background(0, 0, 10);
   noFill();
@@ -171,36 +203,47 @@ function draw() {
 }
 
 function drawAltitudeRings(center, baseR, varR) {
+  // Get the minimum and maximum altitudes from the global range
   const altMin = range.altMin, altMax = range.altMax;
+  // Step size for altitude rings (in feet)
   const step = UI.ringStep;
+  // Compute the maximum altitude ring (rounded up to the nearest step)
   const maxAlt = niceCeilToStep(altMax, step);
+  // Compute the minimum altitude ring (rounded down, but not below 0)
   const minAlt = max(0, niceFloorToStep(altMin, step));
 
   push();
   textSize(8);
+  // Loop through each altitude value at the specified step
   for (let alt = minAlt; alt <= maxAlt; alt += step) {
+    // Compute the radius for this altitude ring using linear mapping
     const rr = baseR + map(alt, altMin, altMax, 0, varR, true);
+    // Format altitude for display: FL = Flight Level (hundreds of feet)
     const fl = Math.round(alt / 100); // FL label (hundreds of feet)
+    // Compute thousands of feet for odd/even FL rule
     const kft = Math.round(alt / 1000); // thousands of feet for parity
+    // Determine if this ring is relevant based on track direction and FL parity
+    // Eastbound (E): odd thousands, Westbound (W): even thousands; if unknown, all relevant
     const relevant = trackDir
       ? (trackDir === 'E' ? (kft % 2 === 1)       // odd thousands → eastbound
                           : (kft % 2 === 0))      // even thousands → westbound
       : true;                                     // if unknown, show all as relevant
 
-    // ring stroke
+    // Draw the altitude ring: color/opacity indicates relevance
     noFill();
     stroke(0, 0, 100, relevant ? UI.ringAlpha : UI.nonRelevantRingAlpha);
     strokeWeight(2);
     ellipse(center.x, center.y, rr * 2, rr * 2);
 
-    // label only relevant FLs
+    // Draw the FL label only for relevant rings
     if (relevant) {
       noStroke();
       fill(0, 0, 100, UI.labelAlpha);
       textAlign(CENTER, BOTTOM);
-      const flStr = `FL${nf(fl, 3)}`; // pad to 3 digits
+      const flStr = `FL${nf(fl, 3)}`; // Pad FL to 3 digits (e.g., FL330)
       text(flStr, center.x, center.y - rr - 2);
-      stroke(0, 0, 100, UI.ringAlpha);
+      stroke(0, 0, 100, UI.ringAlpha); // Restore stroke for next ring
+
     }
   }
   pop();
@@ -218,13 +261,16 @@ function buildRosettePoints() {
   for (let i = 0; i < n; i++) {
     const row = rows[i];
     const t = timeFracForRow(row, i, n);
-    const ang = HALF_PI + t * TWO_PI; // start at 6 o'clock, progress clockwise
-    const rr = baseR + map(row.alt, altMin, altMax, 0, varR, true);
-    const wobble = map(row.spd, range.spdMin, range.spdMax, 0, 6);
-    const x = center.x + cos(ang) * (rr + cos(radians(row.hdg)) * wobble);
-    const y = center.y + sin(ang) * (rr + sin(radians(row.hdg)) * wobble);
+    const angle = HALF_PI + t * TWO_PI; // start at 6 o'clock, progress clockwise
+    const radius = baseR + map(row.alt, altMin, altMax, 0, varR, true);
+    const x = center.x + cos(angle) * radius;
+    const y = center.y + sin(angle) * radius;
     const idx = i;
-    pts.push({ x, y, alt: row.alt, spd: row.spd, hdg: row.hdg, lat: row.lat, lon: row.lon, utc: row.utc, tMs: row.tMs, idx });
+    // Store angle and radius for polar interpolation
+    pts.push({
+      x, y, alt: row.alt, spd: row.spd, hdg: row.hdg, lat: row.lat, lon: row.lon, utc: row.utc, tMs: row.tMs, idx,
+      angle, radius
+    });
   }
   pts.push(pts[0], pts[1]); // close loop for continuity
   return { pts, center, baseR, varR };
@@ -236,6 +282,9 @@ function drawRosette() {
 
   background(0, 0, 8);
 
+  // Rings + labels on top of rosette, below cursor
+  drawAltitudeRings(center, baseR, varR);
+
   // Draw rosette on the offscreen buffer for crisp strokes
   trail.clear();
   trail.colorMode(HSB, 360, 100, 100, 100);
@@ -243,28 +292,35 @@ function drawRosette() {
   for (let i = 0; i < pts.length - 2; i++) {
     const a = pts[i], b = pts[i + 1];
     const hue = 200; // fixed hue blue
-    const sat = 85;
-    const bri = map(a.spd, range.spdMin, range.spdMax, 40, 100, true); // brightness based on speed
-    const sw  = map(a.spd, range.spdMin, range.spdMax, 0.9, 4.2, true);
+    const sat = map(a.spd, range.spdMin, range.spdMax, 100, 50, true); // saturation based on speed
+    const bri = map(a.spd, range.spdMin, range.spdMax, 25, 100, true); // brightness based on speed
+    const sw  = map(a.spd, range.spdMin, range.spdMax, 4, 4.5, true); // stroke weight based on speed
 
     trail.stroke(hue, sat, bri, 92);
     trail.strokeWeight(sw);
 
+    // Polar interpolation for smoother curves
     const segs = 24;
     let px = a.x, py = a.y;
     for (let s = 1; s < segs; s++) {
-      const t = s / (segs - 1);
-      const x1 = lerp(a.x, b.x, t);
-      const y1 = lerp(a.y, b.y, t);
+      const t = s / segs;
+
+      // Interpolate angle and radius separately for smoother curves
+      const angleInterp = lerp(a.angle, b.angle, t);
+      const radiusInterp = lerp(a.radius, b.radius, t);
+
+      // Convert interpolated polar coordinates back to Cartesian
+      const x1 = cos(angleInterp) * radiusInterp + center.x;
+      const y1 = sin(angleInterp) * radiusInterp + center.y;
+
       trail.line(px, py, x1, y1);
-      px = x1; py = y1;
+
+      // Update previous point for the next segment
+      px = x1;
+      py = y1;
     }
   }
-
-  image(trail, 0, 0);
-
-  // Rings + labels on top of rosette, below cursor
-  drawAltitudeRings(center, baseR, varR);
+  image(trail, 0, 0); // Draws the trail buffer onto the main canvas.
 
   // --- Interactive probe from mouse position ---
   selectedIdx = getIndexFromMouse(center, pts.length - 2); // exclude the two closing duplicates
@@ -272,7 +328,7 @@ function drawRosette() {
   drawHeadingViz(center, baseR, hdgNow);
   drawIndicator(pts, selectedIdx);
   updateInfoCard(pts[selectedIdx]);
-  minimapP5.refresh(); // Refresh minimap
+  minimap.refresh(); // Refresh minimap
 }
 
 function keyPressed() {
@@ -430,7 +486,7 @@ function updateInfoCard(p) {
   const altStr = Number.isFinite(p.alt) ? `${Math.round(p.alt)} ft` : '—';
   const locStr = formatLatLon(p.lat, p.lon);
 
-  const refs = window.__infoRefs || {};
+  const refs = window.infoRefs || {};
   const set = (el, v) => { if (el) el.innerHTML = v; };
 
   if (refs.date || refs.since || refs.until || refs.speed || refs.heading || refs.loc || refs.alt || refs.tilt) {
@@ -518,9 +574,14 @@ function initialBearingDeg(lat1, lon1, lat2, lon2) {
   return θ;
 }
 
+// Rounds a value up to the nearest multiple of the given step.
+// For example, niceCeilToStep(1025, 1000) → 2000.
 function niceCeilToStep(v, step) {
-  return Math.ceil(v / step) * step;
+  return Math.ceil(v / step) * step; // example: Math.ceil(1025 / 1000) * 1000; // → 2 * 1000 → 2000
 }
+
+// Rounds a value down to the nearest multiple of the given step.
+// For example, niceFloorToStep(1850, 1000) → 1000.
 function niceFloorToStep(v, step) {
   return Math.floor(v / step) * step;
 }
@@ -598,111 +659,169 @@ function finalizeAfterRowsParsed() {
   trail.clear();
   {
     // Set actual takeoff/landing UTC time fields in the info card (static, does not update)
-    const refs = window.__infoRefs || {};
+    const refs = window.infoRefs || {};
     if (refs.takeoffActual) refs.takeoffActual.innerHTML = actualTakeOffTime || '—';
     if (refs.landingActual) refs.landingActual.innerHTML = actualLandingTime || '—';
   }
 }
 
-// --- Robust CSV line splitter and unquote helper ---
+// --- CSV line splitter and unquote helper ---
 function splitCSVLine(line) {
-  const out = [];
-  let cur = '';
-  let inQuotes = false;
+  const out = []; // final result
+  let cur = ''; // building value
+  let inQuotes = false; // Tracks whether we are currently inside a quoted field
+
+  // Loop through every character in the given CSV line
   for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+    const ch = line[i]; // current character
+
     if (ch === '"') {
-      // Toggle quotes OR handle escaped quotes "" -> "
+      // If character is a double quote:
+
       if (inQuotes && line[i+1] === '"') {
+        // Case: we're inside quotes and encounter two double-quotes in a row ("")
+        // This means an escaped quote → append a single quote to current value
         cur += '"';
-        i++; // skip next quote
+        i++; // skip the second quote to avoid duplication
       } else {
+        // Otherwise, toggle the "inQuotes" flag.
+        // If we were outside quotes → we're now entering quoted section.
+        // If we were inside quotes → we're now exiting quoted section.
         inQuotes = !inQuotes;
       }
+
     } else if (ch === ',' && !inQuotes) {
-      out.push(cur);
-      cur = '';
+      // If character is a comma **outside** of a quoted section:
+      // → Treat it as a separator between CSV fields.
+
+      out.push(cur);  // push the current value into the output array
+      cur = '';       // reset accumulator for the next field
+
     } else {
+      // For all other cases (normal characters or commas inside quotes):
+      // → Add the character to the current field value.
       cur += ch;
     }
   }
+
+  // Push the last collected value after the loop ends.
   out.push(cur);
+
+  // Return the resulting array of fields for this CSV line.
   return out;
 }
 
 function unquote(s) {
-  if (typeof s !== 'string') return s;
-  s = s.trim();
-  if (s.length >= 2 && s[0] === '"' && s[s.length-1] === '"') {
-    s = s.slice(1, -1).replace(/""/g, '"');
+  if (typeof s !== 'string') return s; // Defensive programming: ensures that the function only processes strings (→ if number, return as is)
+  s = s.trim(); // Removes leading and trailing whitespace
+  if (s.length >= 2 && s[0] === '"' && s[s.length-1] === '"') { // Check if the string is at least 2 chars long, and first and last chars are double quotes
+    s = s.slice(1, -1).replace(/""/g, '"'); // Remove outer quotes and replace double double-quotes with single quotes
   }
   return s;
 }
 
 function parseFromCSVText(text) {
+  // Reset all global data holders and ranges before parsing new data
   resetDataHolders();
   if (!text) return;
+
+  // Split the input text into lines, removing any empty lines
   const lines = text.split(/\r?\n/).filter(l => l.trim().length);
   if (!lines.length) return;
+  // console.log(lines); // ← uncomment to debug
 
+  // Parse the header row and normalize header names
   const headers = splitCSVLine(lines[0]).map(h => h.trim());
+  // Helper to find the column index by case-insensitive header name
   const findIdx = (name) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-  const iPos = findIdx('Position');
-  const iAlt = findIdx('Altitude');
-  const iSpd = findIdx('Speed');
-  const iHdg = findIdx('Direction');
-  const iUtc = findIdx('UTC');
-  const iTs  = findIdx('Timestamp');
-  const iCallsign = findIdx('Callsign');
+  // Find indices for each relevant field
+  const iPos = findIdx('Position');    // e.g. "lat,lon"
+  const iAlt = findIdx('Altitude');    // altitude in feet
+  const iSpd = findIdx('Speed');       // speed in knots
+  const iHdg = findIdx('Direction');   // heading in degrees
+  const iUtc = findIdx('UTC');         // UTC string timestamp
+  const iTs  = findIdx('Timestamp');   // Unix timestamp (seconds)
+  const iCallsign = findIdx('Callsign'); // flight callsign
 
-  let callsignVal = '';
+  // Extract callsign once from the first available data row
+  let callsignVal = (iCallsign >= 0 && lines.length > 1)
+    ? unquote(splitCSVLine(lines[1])[iCallsign] || '')
+    : '';
 
+  // Iterate over each CSV data line (skip header row)
   for (let li = 1; li < lines.length; li++) {
+    // Split the current line into columns, handling quoted fields
     const cols = splitCSVLine(lines[li]);
     if (!cols.length) continue;
 
-    // Capture callsign if available and not already captured
-    if (iCallsign >= 0 && !callsignVal) {
-      callsignVal = unquote(cols[iCallsign] || '');
-    }
-
+    // --- Position parsing (latitude, longitude) ---
     const posRaw = (iPos >= 0) ? cols[iPos] : '';
     const pos = unquote(posRaw);
-    if (!pos) continue;
+    if (!pos) continue; // skip row if position is missing
     const [latStr, lonStr] = pos.split(',');
     const lat = Number(latStr);
     const lon = Number(lonStr);
 
+    // --- Altitude, speed, and heading parsing ---
     const alt = (iAlt >= 0) ? Number(cols[iAlt]) : NaN;
     const spd = (iSpd >= 0) ? Number(cols[iSpd]) : NaN;
     const hdg = (iHdg >= 0) ? Number(cols[iHdg]) : NaN;
 
+    // --- Time parsing: prefer UTC, fallback to Unix timestamp ---
     let utc = (iUtc >= 0) ? cols[iUtc] : '';
     utc = utc ? unquote(utc) : '';
     let tMs = NaN;
     if (utc) {
+      // If UTC string exists, parse it to ms since epoch
       tMs = parseUTCtoMs(utc);
     } else if (iTs >= 0) {
+      // Fallback: use Unix timestamp (seconds), convert to ms
       const ts = Number(cols[iTs]);
       if (Number.isFinite(ts)) tMs = ts * 1000; // seconds -> ms
     }
 
+    // --- Data structure creation ---
+    // Store parsed values as an object in the rows array
     rows.push({ lat, lon, alt, spd, hdg, utc, tMs });
 
-    if (Number.isFinite(lat)) { bounds.latMin = min(bounds.latMin, lat); bounds.latMax = max(bounds.latMax, lat); }
-    if (Number.isFinite(lon)) { bounds.lonMin = min(bounds.lonMin, lon); bounds.lonMax = max(bounds.lonMax, lon); }
-    if (Number.isFinite(alt)) { range.altMin = min(range.altMin, alt); range.altMax = max(range.altMax, alt); }
-    if (Number.isFinite(spd)) { range.spdMin = min(range.spdMin, spd); range.spdMax = max(range.spdMax, spd); }
+    // --- Bounds and ranges update ---
+    // Update min/max bounds for latitude
+    if (Number.isFinite(lat)) {
+      bounds.latMin = min(bounds.latMin, lat);
+      bounds.latMax = max(bounds.latMax, lat);
+    }
+
+    // Update min/max bounds for longitude
+    if (Number.isFinite(lon)) {
+      bounds.lonMin = min(bounds.lonMin, lon);
+      bounds.lonMax = max(bounds.lonMax, lon);
+    }
+
+    // Update min/max ranges for altitude
+    if (Number.isFinite(alt)) {
+      range.altMin = min(range.altMin, alt);
+      range.altMax = max(range.altMax, alt);
+    }
+
+    // Update min/max ranges for speed
+    if (Number.isFinite(spd)) {
+      range.spdMin = min(range.spdMin, spd);
+      range.spdMax = max(range.spdMax, spd);
+    }
   }
 
+  // --- Finalization of parsing ---
+  // Compute start/end times, takeoff/landing, track direction, and adjust ranges
   finalizeAfterRowsParsed();
-  // Update the DOM element for callsign
+
+  // --- Callsign display in DOM ---
+  // Update the DOM element for callsign (if available)
   const csEl = document.getElementById('info-callsign');
   if (csEl) csEl.textContent = callsignVal || '—';
 }
 
 // MINIMAP
-let minimapP5 = null;
+let minimap = null;
 
 function createMinimap() {
   const sketch = (p) => {
@@ -828,5 +947,5 @@ function createMinimap() {
     p.refresh = () => { p.redraw(); };
   };
 
-  minimapP5 = new p5(sketch, 'flight-path-canvas');
+  minimap = new p5(sketch, 'flight-path-canvas');
 }
