@@ -290,7 +290,8 @@ function drawRosette() {
   trail.colorMode(HSB, 360, 100, 100, 100);
 
   for (let i = 0; i < pts.length - 2; i++) {
-    const a = pts[i], b = pts[i + 1];
+    const a = pts[i], b = pts[i + 1];    
+    if (i === rows.length - 1) continue; // Prevent drawing between last and first point (skip last-to-first connection)
     const hue = 200; // fixed hue blue
     const sat = map(a.spd, range.spdMin, range.spdMax, 100, 50, true); // saturation based on speed
     const bri = map(a.spd, range.spdMin, range.spdMax, 25, 100, true); // brightness based on speed
