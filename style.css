@@ -168,7 +168,7 @@ h1 {
     transition: all 100ms ease;
 }
 
-#flight-path-canvas {
+#flight-path-canvas, #flight-speed-canvas {
     pointer-events: none;
     width: 280px;
     height: 280px;
@@ -178,6 +178,11 @@ h1 {
     margin-bottom: 24px;
     z-index: 10;
     position: relative;
+}
+
+#flight-speed-canvas {
+    height: 140px;
+    margin-bottom: 8px;
 }
 
 #flight-path-canvas svg {

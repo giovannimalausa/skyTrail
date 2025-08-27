@@ -1,6 +1,6 @@
 // ============ Flight Visualization — Rosette Only ============
 // Controls:
-//   S -> save PNG of the current rosette
+//   A -> save PNG of the current rosette
 // =============================================================
 
 let rows = [];
@@ -68,7 +68,9 @@ const UI = {
   ringStep: 1000, // Step between altitude rings (in feet)
   ringAlpha: 25, // Opacity for visible rings
   nonRelevantRingAlpha: 5, // Opacity for non-relevant rings
-  labelAlpha: 70 // Opacity for labels
+  labelAlpha: 70, // Opacity for labels
+  arcLabel: '← Beginning of Data', // Optional text drawn along the outside of the outer ring (leave empty to disable)
+  arcLabelAlign: 'end' // 'center' | 'start' | 'end' (anchor text relative to the reference angle)
 };
 
 function setup() {
@@ -124,11 +126,18 @@ function setup() {
         if (dashboard) dashboard.classList.remove('hidden');
 
         // If the minimap does not exist yet (first upload), create it now to display the flight path.
-        // If it already exists (user uploads a new file), rebuild it to reflect the new data.
         if (!minimap) {
           createMinimap();
         } else {
+          // If it already exists (user uploads a new file), rebuild it to reflect the new data.
           minimap.rebuild();
+        }
+
+        // If the speed chart does not exist yet (first upload), create it now.
+        if (!speedChart) {
+          createSpeedChart();
+        } else {
+          speedChart.rebuild();
         }
       };
 
@@ -190,7 +199,6 @@ function windowResized() {
   trail.clear();
   background(0, 0, 10);
   // (No overlay element DOM re-append needed; CSS handles stacking)
-
 }
 
 
@@ -209,15 +217,15 @@ function drawAltitudeRings(center, baseR, varR) {
   const step = UI.ringStep;
   // Compute the maximum altitude ring (rounded up to the nearest step)
   const maxAlt = niceCeilToStep(altMax, step);
-  // Compute the minimum altitude ring (rounded down, but not below 0)
-  const minAlt = max(0, niceFloorToStep(altMin, step));
+  // Always start rings at ground level for consistent visuals across flights
+  const minAlt = 0;
 
   push();
   textSize(8);
   // Loop through each altitude value at the specified step
   for (let alt = minAlt; alt <= maxAlt; alt += step) {
     // Compute the radius for this altitude ring using linear mapping
-    const rr = baseR + map(alt, altMin, altMax, 0, varR, true);
+    const rr = baseR + map(alt, altMin, altMax, 0, varR, true); // map(value, inMin, inMax, outMin, outMax, clamp?)
     // Format altitude for display: FL = Flight Level (hundreds of feet)
     const fl = Math.round(alt / 100); // FL label (hundreds of feet)
     // Compute thousands of feet for odd/even FL rule
@@ -233,51 +241,148 @@ function drawAltitudeRings(center, baseR, varR) {
     noFill();
     stroke(0, 0, 100, relevant ? UI.ringAlpha : UI.nonRelevantRingAlpha);
     strokeWeight(2);
-    ellipse(center.x, center.y, rr * 2, rr * 2);
+    circle(center.x, center.y, rr * 2);
 
     // Draw the FL label only for relevant rings
     if (relevant) {
       noStroke();
       fill(0, 0, 100, UI.labelAlpha);
       textAlign(CENTER, BOTTOM);
-      const flStr = `FL${nf(fl, 3)}`; // Pad FL to 3 digits (e.g., FL330)
+      const flStr = `FL${nf(fl, 3)}`; // p5.js --> nf(number, leftDigits, rightDigits) // Pad FL to 3 digits (e.g., FL330) 
       text(flStr, center.x, center.y - rr - 2);
       stroke(0, 0, 100, UI.ringAlpha); // Restore stroke for next ring
-
     }
   }
   pop();
 }
 
-function buildRosettePoints() {
-  const n = rows.length;
-  const altMin = range.altMin, altMax = range.altMax;
-  const center = { x: width * 0.5, y: height * 0.5 };
-  const maxRadius = (min(width, height) / 2) - UI.margin * 2;
-  const varR = maxRadius * 0.6; // fraction for altitude variation
-  const baseR = maxRadius - varR;
+// Vertical marker at 6 o'clock (t=0/1) to indicate where data start/finish
+function drawStartEndMarker(center, baseR, varR) {
+  // 6 o'clock direction → angle = HALF_PI, x stays at center.x
+  const x = center.x;
+  const y0 = center.y + baseR; // start at inner altitude ring
+  const y1 = center.y + baseR + varR; // extend to outer altitude ring
+  push();
+  stroke(0, 80, 90, 40);
+  strokeWeight(2);
+  line(x, y0, x, y1);
+  pop();
+}
 
-  let pts = [];
+// Draw a string along a circular arc, centered at a given angle.
+// radius is measured from center; angleCenter in radians (0 at +x, counterclockwise).
+// If outward=true the text is upright relative to the outside of the circle.
+function drawTextAlongCircle(center, radius, label, angleCenter, outward = true, letterSpacing = 1, align = 'center') {
+  if (!label || !label.length) return;
+  push();
+  noStroke();
+  fill(0, 0, 100, 85);
+  textAlign(CENTER, CENTER);
+  textSize(12);
+
+  // Measure arc length needed: sum of character widths + spacing
+  let total = 0;
+  let widths = [];
+  for (let i = 0; i < label.length; i++) {
+    const w = textWidth(label[i]);
+    widths.push(w);
+    total += w + (i ? letterSpacing : 0);
+  }
+  const theta = total / radius; // total angular span (radians)
+
+  if (outward) {
+    let a;
+    if (align === 'center') a = angleCenter - theta / 2; // centered on angleCenter
+    else if (align === 'end') a = angleCenter - theta; // right edge at angleCenter
+    else a = angleCenter; // 'start' → left edge at angleCenter
+    for (let i = 0; i < label.length; i++) {
+      const ch = label[i];
+      const w = widths[i];
+      a += (w / 2) / radius;
+      const x = center.x + Math.cos(a) * radius;
+      const y = center.y + Math.sin(a) * radius;
+      push();
+      translate(x, y);
+      rotate(a + HALF_PI);
+      text(ch, 0, 0);
+      pop();
+      a += (w / 2 + letterSpacing) / radius;
+    }
+  } else {
+    // Inward orientation but keep reading order left→right on screen.
+    // Move along the arc from left end → right end (decreasing angle near 6 o'clock)
+    let a;
+    if (align === 'center') a = angleCenter + theta / 2; // centered on angleCenter
+    else if (align === 'end') a = angleCenter + theta;   // right edge at angleCenter
+    else a = angleCenter;                                // 'start' → left edge at angleCenter
+    for (let i = 0; i < label.length; i++) {
+      const ch = label[i];
+      const w = widths[i];
+      a -= (w / 2) / radius; // half advance toward the right (decreasing angle)
+      const x = center.x + Math.cos(a) * radius;
+      const y = center.y + Math.sin(a) * radius;
+      push();
+      translate(x, y);
+      // Tangent baseline rotated so glyphs are upright when viewed from outside
+      rotate(a - HALF_PI);
+      text(ch, 0, 0);
+      pop();
+      a -= (w / 2 + letterSpacing) / radius; // complete advance
+    }
+  }
+  pop();
+}
+
+// This function computes the coordinates and attributes needed to draw the flight visualization,
+// mapping each row of flight data to a point around a circular path (radius encodes alt).
+function buildRosettePoints() {
+  const n = rows.length; // Number of data points (rows) to process
+  const altMin = range.altMin, altMax = range.altMax; // Min and max alt across the dataset, used for scaling the radius
+  const center = { x: width * 0.5, y: height * 0.5 }; // The center of the rosette (middle of the canvas)
+  const maxRadius = (min(width, height) / 2) - UI.margin * 2; // The max radius the rosette can reach, leaving a margin from the edges
+  const varR = maxRadius * 0.6; // The portion of the total radius that will vary based on alt.
+  const baseR = maxRadius - varR; // Min radius from the center (the "innermost" ring, for lowest alt).
+
+  let pts = []; // Array to hold all computed rosette points
   for (let i = 0; i < n; i++) {
     const row = rows[i];
-    const t = timeFracForRow(row, i, n);
-    const angle = HALF_PI + t * TWO_PI; // start at 6 o'clock, progress clockwise
+    const t = timeFracForRow(row, i, n); // t = value from 0 to 1, representing the fraction of the way through the flight. Based on timestamp if available, or index-based if not.
+    const angle = HALF_PI + t * TWO_PI; // The angle for this point around the circle. Start at HALF_PI (6 o'clock) and sweep clockwise through TWO_PI as t goes from 0 to 1.
+    // The radius for this point is determined by linearly mapping the row's alt from [altMin, altMax]
+    // to [0, varR], then offsetting by baseR. This means:
+    // - The lowest altitude maps to the innermost ring (baseR)
+    // - The highest altitude maps to the outermost ring (baseR + varR)
     const radius = baseR + map(row.alt, altMin, altMax, 0, varR, true);
+    // Convert polar coordinates (angle, radius) to Cartesian (x, y) for plotting on the canvas.
+    // This is necessary because drawing functions require x/y coordinates, not angle/radius.
     const x = center.x + cos(angle) * radius;
     const y = center.y + sin(angle) * radius;
     const idx = i;
-    // Store angle and radius for polar interpolation
+    // Store all relevant data for this point, including its computed position,
+    // original flight data, and polar coordinates (angle, radius) for interpolation.
     pts.push({
       x, y, alt: row.alt, spd: row.spd, hdg: row.hdg, lat: row.lat, lon: row.lon, utc: row.utc, tMs: row.tMs, idx,
       angle, radius
     });
   }
+  // Add the first two points again to the end of the array.
+  // This "closes the loop," ensuring the path is continuous when drawing curves that wrap around.
   pts.push(pts[0], pts[1]); // close loop for continuity
+  // Return an object containing:
+  // - pts: Array of all computed point objects, ready for drawing the rosette path.
+  // - center: The center coordinate of the rosette (for drawing reference).
+  // - baseR: The minimum radius (for drawing inner rings and scaling).
+  // - varR: The amount of radius that varies with altitude (for scaling and drawing rings).
+  // This structure is returned so the caller can use all the necessary geometry and scaling info
+  // for rendering the rosette and related overlays.
   return { pts, center, baseR, varR };
 }
 
 function drawRosette() {
   if (!rows.length) return;
+
+  // 1. Call the function buildRosettePoints().   2. Take the object it returns.
+  // 3. Unpack the properties pts, center, baseR, and varR.   4. Store them in constants with the same names.
   const { pts, center, baseR, varR } = buildRosettePoints();
 
   background(0, 0, 8);
@@ -295,7 +400,7 @@ function drawRosette() {
     const hue = 200; // fixed hue blue
     const sat = map(a.spd, range.spdMin, range.spdMax, 100, 50, true); // saturation based on speed
     const bri = map(a.spd, range.spdMin, range.spdMax, 25, 100, true); // brightness based on speed
-    const sw  = map(a.spd, range.spdMin, range.spdMax, 4, 4.5, true); // stroke weight based on speed
+    const sw  = map(a.spd, range.spdMin, range.spdMax, 2, 4.5, true); // stroke weight based on speed
 
     trail.stroke(hue, sat, bri, 92);
     trail.strokeWeight(sw);
@@ -323,6 +428,14 @@ function drawRosette() {
   }
   image(trail, 0, 0); // Draws the trail buffer onto the main canvas.
 
+  drawStartEndMarker(center, baseR, varR);
+
+  // Optional label along the outside of the outer circle (centered at 6 o'clock)
+  if (UI.arcLabel && UI.arcLabel.length) {
+    const rLabel = baseR + varR + 14; // a bit outside the outer ring
+    drawTextAlongCircle(center, rLabel, UI.arcLabel, HALF_PI, false, 1, UI.arcLabelAlign);
+  }
+
   // --- Interactive probe from mouse position ---
   selectedIdx = getIndexFromMouse(center, pts.length - 2); // exclude the two closing duplicates
   const hdgNow = (rows[selectedIdx] && Number.isFinite(rows[selectedIdx].hdg)) ? rows[selectedIdx].hdg : null;
@@ -330,10 +443,11 @@ function drawRosette() {
   drawIndicator(pts, selectedIdx);
   updateInfoCard(pts[selectedIdx]);
   minimap.refresh(); // Refresh minimap
+  speedChart.refresh(); // Refresh speed chart
 }
 
 function keyPressed() {
-  if (key === 's' || key === 'S') {
+  if (key === 'a' || key === 'A') {
     saveCanvas('altitude_rosette', 'png');
   }
 }
@@ -393,14 +507,6 @@ function drawIndicator(pts, i) {
     planeEl.style.transform =
       `translate(${a.x + ox}px, ${a.y + oy}px) translate(-50%, -50%) rotate(${degAdj}deg)`;
   }
-
-  // Faint crosshair
-  push();
-  stroke(0, 0, 100, 35);
-  strokeWeight(1);
-  line(a.x - 8, a.y, a.x + 8, a.y);
-  line(a.x, a.y - 8, a.x, a.y + 8);
-  pop();
 }
 
 function drawHeadingViz(center, baseR, headingDeg) {
@@ -415,7 +521,7 @@ function drawHeadingViz(center, baseR, headingDeg) {
   noFill();
   stroke(0, 0, 100, 12);
   strokeWeight(1);
-  ellipse(0, 0, ringR * 2, ringR * 2);
+  circle(0, 0, ringR * 2);
 
   // tick marks every 30°, with stronger cardinals
   for (let a = 0; a < 360; a += 30) {
@@ -562,17 +668,32 @@ function formatLatLon(lat, lon) {
   return `${fmt(lat, 'N', 'S')}, ${fmt(lon, 'E', 'W')}`;
 }
 
-function toRad(d) { return d * Math.PI / 180; }
-function toDeg(r) { return r * 180 / Math.PI; }
-// Initial great-circle bearing from point 1 to point 2 (degrees 0..360)
-function initialBearingDeg(lat1, lon1, lat2, lon2) {
-  const φ1 = toRad(lat1), φ2 = toRad(lat2);
-  const Δλ = toRad(lon2 - lon1);
-  const y = Math.sin(Δλ) * Math.cos(φ2);
-  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-  let θ = Math.atan2(y, x); // -π..+π
-  θ = (toDeg(θ) + 360) % 360; // 0..360
-  return θ;
+// Bearing helper: verify whether the flight is tracking Eastbound or Westbound.
+// Updates global trackDir and returns 'E', 'W', or null.
+function updateTrackDir(lat1, lon1, lat2, lon2) {
+  // Validate inputs
+  if (!Number.isFinite(lat1) || !Number.isFinite(lon1) ||
+      !Number.isFinite(lat2) || !Number.isFinite(lon2)) {
+    trackDir = null;
+    return trackDir;
+  }
+
+  // Normalize shortest-path Δlon to [-180, +180]
+  let dlon = ((lon2 - lon1 + 540) % 360) - 180;
+
+  // Pure N/S (same meridian within epsilon): tie-break by latitude
+  if (Math.abs(dlon) < 1e-6) {
+    if (Math.abs(lat2 - lat1) < 1e-6) {
+      trackDir = null; // same point → undefined
+      return trackDir;
+    }
+    trackDir = (lat2 > lat1) ? 'E' : 'W';
+    return trackDir;
+  }
+
+  // General case: sign of Δlon decides
+  trackDir = dlon > 0 ? 'E' : 'W';
+  return trackDir;
 }
 
 // Rounds a value up to the nearest multiple of the given step.
@@ -645,11 +766,68 @@ function finalizeAfterRowsParsed() {
     }
   }
 
+  // --- Average speed during flight (altitude > 0) ---
+  (function updateAvgSpeedDuringFlight(){
+    const el = document.getElementById('avg-speed');
+    if (!el) return;
+
+    // We rely on the same takeoff/landing detection as above
+    // Recompute indices to bound the in-flight interval
+    let takeIdx2 = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (Number.isFinite(r.tMs) && Number.isFinite(r.alt) && r.alt > 0) { takeIdx2 = i; break; }
+    }
+
+    if (takeIdx2 < 0) { el.textContent = '—'; return; }
+
+    let landIdx2 = rows.length - 1;
+    for (let i = takeIdx2 + 1; i < rows.length; i++) {
+      const prev = rows[i - 1];
+      const cur  = rows[i];
+      if (Number.isFinite(prev?.alt) && Number.isFinite(cur?.alt) && prev.alt !== 0 && cur.alt === 0) {
+        landIdx2 = i; // the first row at ground
+        break;
+      }
+    }
+
+    let weightedSum = 0; // sum( avg(speed_i, speed_{i+1}) * dt_i )
+    let totalDt = 0;     // seconds while in flight
+
+    for (let i = takeIdx2; i < landIdx2; i++) {
+      const a = rows[i];
+      const b = rows[i + 1];
+      if (!a || !b) continue;
+      if (!Number.isFinite(a.tMs) || !Number.isFinite(b.tMs)) continue;
+      const dt = (b.tMs - a.tMs) / 1000; // seconds
+      if (!(dt > 0)) continue;
+
+      // consider interval only if both endpoints are in-flight (alt > 0)
+      if (!Number.isFinite(a.alt) || !Number.isFinite(b.alt) || a.alt <= 0 || b.alt <= 0) continue;
+
+      // use trapezoidal average of speed (knots)
+      const sA = Number.isFinite(a.spd) ? a.spd : NaN;
+      const sB = Number.isFinite(b.spd) ? b.spd : NaN;
+      if (!Number.isFinite(sA) || !Number.isFinite(sB)) continue;
+
+      const sAvg = (sA + sB) * 0.5;
+      weightedSum += sAvg * dt;
+      totalDt += dt;
+    }
+
+    if (totalDt > 0) {
+      const avgKt = weightedSum / totalDt; // time-weighted average speed in knots
+      el.textContent = Math.round(avgKt) + ' kt';
+    } else {
+      el.textContent = '—';
+    }
+  })();
+
   if (rows.length >= 2) {
     const start = rows[0];
     const end   = rows[rows.length - 1];
-    const brg = initialBearingDeg(start.lat, start.lon, end.lat, end.lon);
-    trackDir = (brg >= 0 && brg < 180) ? 'E' : 'W';
+    // Verify whether the flight is tracking East/West and update global trackDir
+    updateTrackDir(start.lat, start.lon, end.lat, end.lon);
   }
   if (range.altMin === range.altMax) range.altMax = range.altMin + 1;
   if (range.spdMin === range.spdMax) range.spdMax = range.spdMin + 1;
@@ -859,8 +1037,14 @@ function createMinimap() {
       if (!track.length) { bounds = null; return; }
       let minLat = +Infinity, maxLat = -Infinity, minLon = +Infinity, maxLon = -Infinity;
       for (const pt of track) {
-        if (Number.isFinite(pt.lat)) { if (pt.lat < minLat) minLat = pt.lat; if (pt.lat > maxLat) maxLat = pt.lat; }
-        if (Number.isFinite(pt.lon)) { if (pt.lon < minLon) minLon = pt.lon; if (pt.lon > maxLon) maxLon = pt.lon; }
+        if (Number.isFinite(pt.lat)) {
+          if (pt.lat < minLat) minLat = pt.lat;
+          if (pt.lat > maxLat) maxLat = pt.lat;
+        }
+        if (Number.isFinite(pt.lon)) {
+          if (pt.lon < minLon) minLon = pt.lon;
+          if (pt.lon > maxLon) maxLon = pt.lon;
+        }
       }
       bounds = { minLat, maxLat, minLon, maxLon };
 
@@ -949,4 +1133,201 @@ function createMinimap() {
   };
 
   minimap = new p5(sketch, 'flight-path-canvas');
+}
+
+// SPEED CHART
+let speedChart = null;
+
+function createSpeedChart() {
+  const sketch = (p) => {
+    let pad = 16;                 // internal padding
+    let pts = [];                // projected points [{x,y,tMs,spd}]
+    let sX = 1, offX = 0;        // mapping X (time)
+    let sY = 1, offY = 0;        // mapping Y (speed)
+
+    p.setup = () => {
+      const host = document.getElementById('flight-speed-canvas');
+      const w = host?.clientWidth || 300;
+      const h = host?.clientHeight || 120;
+      p.createCanvas(w, h);
+      p.pixelDensity(1);
+      p.noLoop();     // manual redraw
+      p.clear();
+      p.canvas.style.pointerEvents = 'none';
+      rebuild();
+      observeResize(host);
+    };
+
+    function observeResize(host) {
+      if (!host) return;
+      const ro = new ResizeObserver(() => {
+        p.resizeCanvas(host.clientWidth, host.clientHeight);
+        rebuild();
+        p.redraw();
+      });
+      ro.observe(host);
+    }
+
+    function computeFit() {
+      // dati e tempi validi?
+      if (!rows.length || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        pts.length = 0; return;
+      }
+      const innerW = Math.max(1, p.width  - pad*2);
+      const innerH = Math.max(1, p.height - pad*2);
+
+      const tSpan = endMs - startMs; // total ms
+      sX = innerW / tSpan;           // px per ms
+      offX = pad;                    // left padding
+
+      // vertical scale from global speed range
+      const spanY = Math.max(1e-6, range.spdMax - range.spdMin);
+      sY = innerH / spanY;
+      offY = pad; // vertical flip is in project()
+    }
+
+    function project(row) {
+      const x = (row.tMs - startMs) * sX + offX;
+      // y grows downward: spdMin → bottom, spdMax → top
+      const yVal = (row.spd - range.spdMin) * sY; // 0..innerH
+      const y = p.height - (yVal + offY);
+      return { x, y };
+    }
+
+    function rebuild() {
+      pts.length = 0;
+      computeFit();
+      if (!rows.length || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return;
+
+      for (const r of rows) {
+        if (Number.isFinite(r.tMs) && Number.isFinite(r.spd)) {
+          const pr = project(r);
+          pts.push({ x: pr.x, y: pr.y, tMs: r.tMs, spd: r.spd });
+        }
+      }
+      // for safety: sort by time
+      pts.sort((a,b) => a.tMs - b.tMs);
+    }
+
+    p.draw = () => {
+      p.clear();
+      drawFrame();
+      drawAxes();
+      drawAreaUnderLine();
+      drawLine();
+      drawCursor();
+    };
+    function drawAreaUnderLine() {
+      if (pts.length < 2) return;
+
+      // Baseline at current visual minimum speed (range.spdMin)
+      const yBase = p.height - ((0 - 0 + (range.spdMin - range.spdMin)) * sY + offY); // placeholder to show form
+      // compute with same projector used in project():
+      const yForSpeed = (v) => p.height - (((v - range.spdMin) * sY) + offY);
+      const baselineY = yForSpeed(range.spdMin);
+
+      p.noStroke();
+      // ~20% opacity (0.20 * 255 ≈ 51)
+      p.fill(255, 255, 255, 51);
+
+      p.beginShape();
+      // start at first x on baseline
+      p.vertex(pts[0].x, baselineY);
+      // trace the curve
+      for (const pt of pts) {
+        p.vertex(pt.x, pt.y);
+      }
+      // end at last x on baseline, then close
+      p.vertex(pts[pts.length - 1].x, baselineY);
+      p.endShape(p.CLOSE);
+    }
+
+    function drawFrame() {
+      p.noFill();
+      p.stroke(255, 40);
+      p.strokeWeight(1);
+      p.rect(0.5, 0.5, p.width-1, p.height-1, 6);
+    }
+
+    function drawAxes() {
+      // 1) Update DOM with max speed
+      const el = document.getElementById('max-speed');
+      if (el && Number.isFinite(range.spdMax)) {
+        el.textContent = Math.round(range.spdMax) + ' kt';
+      }
+
+      // 2) Grid lines: baseline at 0 kt and every 100 kt up to floor(spdMax/100)*100
+      const yForSpeed = (v) => {
+        const yVal = (v - range.spdMin) * sY;
+        return p.height - (yVal + offY);
+      };
+
+      // Baseline at 0 kt — always draw it (clamped to canvas if outside range)
+      if (Number.isFinite(range.spdMin) && Number.isFinite(range.spdMax)) {
+        const y0raw = yForSpeed(0);
+        const y0 = Math.max(1, Math.min(p.height - 1, Math.round(y0raw) + 0.5));
+        p.stroke(255, 120); // a bit stronger
+        p.strokeWeight(1);
+        p.line(1, y0, p.width - 1, y0);
+      }
+
+      // Horizontal lines every 100 kt up to the last full hundred ≤ max speed
+      if (Number.isFinite(range.spdMax)) {
+        const maxHundred = Math.floor(range.spdMax / 100) * 100; // e.g., 340 → 300
+        for (let v = 100; v <= maxHundred; v += 100) {
+          const y = yForSpeed(v);
+          if (y >= 0 && y <= p.height) {
+            p.stroke(255, 60); // subtle
+            p.strokeWeight(1);
+            p.line(1, Math.round(y) + 0.5, p.width - 1, Math.round(y) + 0.5);
+          }
+        }
+      }
+    }
+
+    function drawLine() {
+      if (pts.length < 2) return;
+      p.noFill();
+      p.stroke(255, 200);
+      p.strokeWeight(2);
+      p.beginShape();
+      for (const pt of pts) p.vertex(pt.x, pt.y);
+      p.endShape();
+    }
+
+    function drawCursor() {
+      const i = window.skyTrailState.cursorIndex;
+      if (!Number.isFinite(i) || !rows[i]) return;
+      const r = rows[i];
+      if (!Number.isFinite(r.tMs)) return;
+      const pr = project(r);
+
+      // vertical cursor on time
+      p.stroke(255, 120);
+      p.strokeWeight(1);
+      p.line(pr.x, 0, pr.x, p.height);
+
+      // point on line at current speed
+      if (Number.isFinite(r.spd)) {
+        p.noStroke();
+        p.fill(255, 255, 0, 230);
+        p.circle(pr.x, pr.y, 5);
+
+        // small label near the point
+        p.fill(255);
+        p.textSize(10);
+        p.textAlign(p.LEFT, p.BOTTOM);
+        const lbl = Math.round(r.spd) + ' kt';
+        const tx = Math.min(pr.x + 6, p.width - 30);
+        const ty = Math.max(12, pr.y - 6);
+        p.text(lbl, tx, ty);
+      }
+    }
+
+    // public hooks
+    p.rebuild = () => { rebuild(); p.redraw(); };
+    p.refresh = () => { p.redraw(); };
+  };
+
+  speedChart = new p5(sketch, 'flight-speed-canvas');
 }

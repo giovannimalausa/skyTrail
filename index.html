@@ -13,7 +13,7 @@
         <div class="welcome-card">
                 <div class="app-mark">✈️</div>
                 <h1>Welcome to SkyTrail</h1>
-                <p class="subtitle">Turn your flight data into generative art.</p>
+                <p class="subtitle">See and interact with your flight data.</p>
 
                 <div id="drop-zone" class="drop-zone" aria-label="CSV drop area">
                     <input id="csv-input" type="file" accept=".csv" aria-label="Choose CSV" />
@@ -23,7 +23,7 @@
                     </div>
                 </div>
 
-                <p class="hint">Expected headers: <code>Position, Altitude, Speed, Direction, UTC</code></p>
+                <p class="hint">Expected headers: <code>Timestamp, Position, Altitude, Speed, Heading, Callsign</code></p>
             </div>
         </section>
 
@@ -60,6 +60,13 @@
                             <path d="M5.85938 119.727C8.1543 119.727 10.5469 118.408 12.4512 116.602L32.0312 98.0469C32.5684 97.5098 32.959 97.2656 33.3496 97.2656C33.7402 97.2656 34.1309 97.5098 34.668 98.0469L54.248 116.602C56.1523 118.408 58.4961 119.727 60.8398 119.727C64.1602 119.727 66.6992 116.65 66.6992 113.379C66.6992 111.426 65.918 109.277 64.8926 106.543L40.0879 42.5293C38.4277 38.2812 36.1328 36.4746 33.3496 36.4746C30.5664 36.4746 28.2715 38.2812 26.6113 42.5293L1.80664 106.543C0.78125 109.277 0 111.426 0 113.379C0 116.65 2.49023 119.727 5.85938 119.727ZM8.98438 109.082C8.83789 108.887 8.78906 108.691 8.88672 108.35L32.6172 47.5098C32.7637 47.1191 33.0078 46.7773 33.3496 46.7773C33.7402 46.7773 33.8867 47.168 34.082 47.5098L57.8125 108.35C57.9102 108.691 57.9102 108.936 57.7148 109.082C57.6172 109.131 57.4219 109.277 57.1289 108.984L37.1582 90.8691C35.7422 89.5508 34.5703 88.8184 33.3496 88.8184C32.1289 88.8184 30.957 89.5508 29.541 90.8691L9.57031 108.984C9.42383 109.131 9.13086 109.277 8.98438 109.082ZM33.3496 29.7852C35.6934 29.7852 37.2559 28.125 37.2559 25.5371L37.2559 4.19922C37.2559 1.61133 35.6934 0 33.3496 0C31.0059 0 29.3945 1.61133 29.3945 4.19922L29.3945 25.5371C29.3945 28.125 31.0059 29.7852 33.3496 29.7852Z" fill="white"/>
                         </svg>
                     </div>
+                </div>
+
+                <div class="info-card-section">
+                    <div class="title">Speed</div>
+                    <div id="flight-speed-canvas"></div>
+                    <div class="info-row"><span class="k">Max Speed</span><span id="max-speed" class="v">—</span></div>
+                    <div class="info-row"><span class="k">Average Speed in Flight</span><span id="avg-speed" class="v">—</span></div>
                 </div>
             </aside>
 
