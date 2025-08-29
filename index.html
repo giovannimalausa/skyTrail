@@ -50,6 +50,40 @@
                     <div class="info-row"><span class="k">Altitude</span><span id="info-altitude" class="v">—</span></div>
                     <div class="info-row"><span class="k">Tilt (FPA)</span><span id="info-tilt" class="v">—</span></div>
                 </div>
+
+                <div class="info-card-section speed-legend">
+                    <div class="title">Speed Reference Key</div>
+                    
+                    <div class="speed-key-row">
+                        <div class="color-key" id="color-band-0"></div>
+                        <span class="k">0-39 kt</span>
+                    </div>
+
+                    <div class="speed-key-row">
+                        <div class="color-key" id="color-band-1"></div>
+                        <span class="k">40-159 kt</span>
+                    </div>
+
+                    <div class="speed-key-row">
+                        <div class="color-key" id="color-band-2"></div>
+                        <span class="k">160-299 kt</span>
+                    </div>
+
+                    <div class="speed-key-row">
+                        <div class="color-key" id="color-band-3"></div>
+                        <span class="k">300-419 kt</span>
+                    </div>
+
+                    <div class="speed-key-row">
+                        <div class="color-key" id="color-band-4"></div>
+                        <span class="k">420-519 kt</span>
+                    </div>
+
+                    <div class="speed-key-row">
+                        <div class="color-key" id="color-band-5"></div>
+                        <span class="k">520+ kt</span>
+                    </div>
+                </div>
             </aside>
 
             <aside id="right-info-card" class="info-card">
@@ -67,6 +101,17 @@
                     <div id="flight-speed-canvas"></div>
                     <div class="info-row"><span class="k">Max Speed</span><span id="max-speed" class="v">—</span></div>
                     <div class="info-row"><span class="k">Average Speed in Flight</span><span id="avg-speed" class="v">—</span></div>
+                </div>
+
+                <div>
+                    <button id="reset-button" class="button">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="#000000" viewBox="0 0 256 256">
+                            <path d="M213.66,82.34l-56-56A8,8,0,0,0,152,24H56A16,16,0,0,0,40,40V216a16,16,0,0,0,16,16H200a16,16,0,0,0,16-16V88A8,8,0,0,0,213.66,82.34ZM160,51.31,188.69,80H160ZM200,216H56V40h88V88a8,8,0,0,0,8,8h48V216Zm-42.34-77.66a8,8,0,0,1-11.32,11.32L136,139.31V184a8,8,0,0,1-16,0V139.31l-10.34,10.35a8,8,0,0,1-11.32-11.32l24-24a8,8,0,0,1,11.32,0Z"></path>
+                        </svg>
+                        <p>
+                            Load Different Flight
+                        </p>
+                    </button>
                 </div>
             </aside>
 
@@ -87,6 +132,6 @@
         <!-- Load p5.js from CDN -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
         <!-- Sketch -->
-        <script src="sketch.js"></script>
+        <script src="sketch2.js"></script>
     </body>
 </html>

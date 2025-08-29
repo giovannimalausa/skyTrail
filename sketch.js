@@ -27,6 +27,38 @@ let infoRefs; // populated in setup when HTML elements exist
 
 let selectedIdx = 0; // Currently selected point index (based on mouse position)
 
+// Centralized DOM cache
+let dom = {};
+function cacheDomRefs() {
+  dom.leftInfoCard   = document.getElementById('left-info-card');
+  dom.dashboard      = document.getElementById('dashboard');
+  dom.welcome        = document.getElementById('welcome');
+  dom.dropZone       = document.getElementById('drop-zone');
+  dom.csvInput       = document.getElementById('csv-input');
+
+  dom.cursorPlane    = document.getElementById('cursor-plane');
+  dom.headingPlane   = document.getElementById('heading-plane');
+
+  dom.flightPathHost = document.getElementById('flight-path-canvas');
+  dom.flightSpeedHost= document.getElementById('flight-speed-canvas');
+
+  dom.avgSpeed       = document.getElementById('avg-speed');
+  dom.maxSpeed       = document.getElementById('max-speed');
+
+  // Info card fields
+  dom.infoDate       = document.getElementById('info-date');
+  dom.infoSince      = document.getElementById('info-since');
+  dom.infoUntil      = document.getElementById('info-until');
+  dom.infoSpeed      = document.getElementById('info-speed');
+  dom.infoHeading    = document.getElementById('info-heading');
+  dom.infoLocation   = document.getElementById('info-location');
+  dom.infoAltitude   = document.getElementById('info-altitude');
+  dom.infoTilt       = document.getElementById('info-tilt');
+  dom.infoCallsign   = document.getElementById('info-callsign');
+  dom.infoTakeoff    = document.getElementById('info-actual-takeoff-time');
+  dom.infoLanding    = document.getElementById('info-actual-landing-time');
+}
+
 // Flight start and end times (milliseconds since epoch)
 let startMs = null, endMs = null;
 
@@ -67,7 +99,7 @@ const UI = {
   margin: 24, // margin from canvas edges
   ringStep: 1000, // Step between altitude rings (in feet)
   ringAlpha: 25, // Opacity for visible rings
-  nonRelevantRingAlpha: 5, // Opacity for non-relevant rings
+  nonRelevantRingAlpha: 15, // Opacity for non-relevant rings
   labelAlpha: 70, // Opacity for labels
   arcLabel: '← Beginning of Data', // Optional text drawn along the outside of the outer ring (leave empty to disable)
   arcLabelAlign: 'end' // 'center' | 'start' | 'end' (anchor text relative to the reference angle)
@@ -79,31 +111,32 @@ function setup() {
   colorMode(HSB, 360, 100, 100, 100);
   pixelDensity(1);
 
-  // Side info card. Cache references to DOM elements (fields) inside the side panel
-  infoCard = document.getElementById('left-info-card');
-  const get = (id) => document.getElementById(id); // helper function that gets an element from the DOM by its ID
+  cacheDomRefs();
+
+  // Side info card. Cache references from centralized DOM cache
+  infoCard = dom.leftInfoCard;
   window.infoRefs = {
-    date:    get('info-date'),
-    since:   get('info-since'),
-    until:   get('info-until'),
-    speed:   get('info-speed'),
-    heading: get('info-heading'),
-    loc:     get('info-location'),
-    alt:     get('info-altitude'),
-    tilt:    get('info-tilt'),
-    callsign: get('info-callsign'),
-    takeoffActual: get('info-actual-takeoff-time'),
-    landingActual: get('info-actual-landing-time')
+    date:    dom.infoDate,
+    since:   dom.infoSince,
+    until:   dom.infoUntil,
+    speed:   dom.infoSpeed,
+    heading: dom.infoHeading,
+    loc:     dom.infoLocation,
+    alt:     dom.infoAltitude,
+    tilt:    dom.infoTilt,
+    callsign: dom.infoCallsign,
+    takeoffActual: dom.infoTakeoff,
+    landingActual: dom.infoLanding
   };
   if (!infoCard) {
     console.warn('left-info-card element not found in HTML. Add it to index.html.');
   }
 
   // Wire up welcome/upload UI and swap screens after upload
-  const dashboard = document.getElementById('dashboard');
-  const welcome = document.getElementById('welcome');
-  const dz = document.getElementById('drop-zone');
-  const fileEl = document.getElementById('csv-input');
+  const dashboard = dom.dashboard;
+  const welcome = dom.welcome;
+  const dz = dom.dropZone;
+  const fileEl = dom.csvInput;
 
   if (dz && fileEl) {
     const onFiles = (files) => { // arrow function that handles file uploads
@@ -176,13 +209,13 @@ function setup() {
   }
 
   // Hook existing overlay element for the cursor icon (CSS handles positioning)
-  planeEl = document.getElementById('cursor-plane');
+  planeEl = dom.cursorPlane;
   if (!planeEl) {
     console.warn('cursor-plane element not found in HTML.');
   }
 
   // Hook a separate overlay element for the heading indicator
-  headingPlaneEl = document.getElementById('heading-plane');
+  headingPlaneEl = dom.headingPlane;
   headingPlaneEl.style.transform = 'translate(-10000px,-10000px)';
 
   background(0, 0, 10);
@@ -211,36 +244,32 @@ function draw() {
 }
 
 function drawAltitudeRings(center, baseR, varR) {
-  // Get the minimum and maximum altitudes from the global range
-  const altMin = range.altMin, altMax = range.altMax;
-  // Step size for altitude rings (in feet)
-  const step = UI.ringStep;
-  // Compute the maximum altitude ring (rounded up to the nearest step)
-  const maxAlt = niceCeilToStep(altMax, step);
-  // Always start rings at ground level for consistent visuals across flights
-  const minAlt = 0;
+  const altMax = range.altMax; // Get the maximum altitude from the global range
+  const step = UI.ringStep; // Step size for altitude rings (in ft)
+  const maxAlt = niceCeilToStep(altMax, step); // Maximum altitude ring (rounded up to the nearest step)
+  const minAlt = 0; // Always start rings at ground level for consistent visuals across flights
 
   push();
   textSize(8);
   // Loop through each altitude value at the specified step
   for (let alt = minAlt; alt <= maxAlt; alt += step) {
     // Compute the radius for this altitude ring using linear mapping
-    const rr = baseR + map(alt, altMin, altMax, 0, varR, true); // map(value, inMin, inMax, outMin, outMax, clamp?)
-    // Format altitude for display: FL = Flight Level (hundreds of feet)
-    const fl = Math.round(alt / 100); // FL label (hundreds of feet)
-    // Compute thousands of feet for odd/even FL rule
-    const kft = Math.round(alt / 1000); // thousands of feet for parity
+    const rr = baseR + map(alt, 0, altMax, 0, varR, true); // map(value, inMin, inMax, outMin, outMax, clamp?)
+    // Format altitude for display: FL = Flight Level (hundreds of ft)
+    const fl = Math.round(alt / 100); // e.g. 33000 → 330
     // Determine if this ring is relevant based on track direction and FL parity
+    // Compute thousands of ft for odd/even FL rule
+    const kft = Math.round(alt / 1000); // e.g. 33000 → 33
     // Eastbound (E): odd thousands, Westbound (W): even thousands; if unknown, all relevant
     const relevant = trackDir
-      ? (trackDir === 'E' ? (kft % 2 === 1)       // odd thousands → eastbound
-                          : (kft % 2 === 0))      // even thousands → westbound
+      ? (trackDir === 'E' ? (kft % 2 === 1)       // eastbound → odd thousands
+                          : (kft % 2 === 0))      // westbound → even thousands
       : true;                                     // if unknown, show all as relevant
 
     // Draw the altitude ring: color/opacity indicates relevance
     noFill();
     stroke(0, 0, 100, relevant ? UI.ringAlpha : UI.nonRelevantRingAlpha);
-    strokeWeight(2);
+    strokeWeight(relevant ? 2 : 1);
     circle(center.x, center.y, rr * 2);
 
     // Draw the FL label only for relevant rings
@@ -354,7 +383,7 @@ function buildRosettePoints() {
     // - The highest altitude maps to the outermost ring (baseR + varR)
     const radius = baseR + map(row.alt, altMin, altMax, 0, varR, true);
     // Convert polar coordinates (angle, radius) to Cartesian (x, y) for plotting on the canvas.
-    // This is necessary because drawing functions require x/y coordinates, not angle/radius.
+    // Necessary: drawing functions require x/y coordinates, not angle/radius.
     const x = center.x + cos(angle) * radius;
     const y = center.y + sin(angle) * radius;
     const idx = i;
@@ -672,7 +701,7 @@ function formatLatLon(lat, lon) {
 // Updates global trackDir and returns 'E', 'W', or null.
 function updateTrackDir(lat1, lon1, lat2, lon2) {
   // Validate inputs
-  if (!Number.isFinite(lat1) || !Number.isFinite(lon1) ||
+  if (!Number.isFinite(lat1) || !Number.isFinite(lon1) || 
       !Number.isFinite(lat2) || !Number.isFinite(lon2)) {
     trackDir = null;
     return trackDir;
@@ -681,7 +710,7 @@ function updateTrackDir(lat1, lon1, lat2, lon2) {
   // Normalize shortest-path Δlon to [-180, +180]
   let dlon = ((lon2 - lon1 + 540) % 360) - 180;
 
-  // Pure N/S (same meridian within epsilon): tie-break by latitude
+  // Pure N/S (same meridian within ε (epsilon)): tie-break by latitude
   if (Math.abs(dlon) < 1e-6) {
     if (Math.abs(lat2 - lat1) < 1e-6) {
       trackDir = null; // same point → undefined
@@ -702,21 +731,13 @@ function niceCeilToStep(v, step) {
   return Math.ceil(v / step) * step; // example: Math.ceil(1025 / 1000) * 1000; // → 2 * 1000 → 2000
 }
 
-// Rounds a value down to the nearest multiple of the given step.
-// For example, niceFloorToStep(1850, 1000) → 1000.
-function niceFloorToStep(v, step) {
-  return Math.floor(v / step) * step;
-}
-
-function fracFromTimeMs(ms) {
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs || !Number.isFinite(ms)) return null;
-  return constrain((ms - startMs) / (endMs - startMs), 0, 1);
-}
-
 function timeFracForRow(row, i, n) {
-  const ft = fracFromTimeMs(row && row.tMs);
-  if (ft !== null) return ft;
-  // Fallback to index spacing if this row has no timestamp
+  // Prefer real timestamps when available: normalize to [0,1] across [startMs,endMs]
+  const ms = row && row.tMs;
+  if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs && Number.isFinite(ms)) {
+    return constrain((ms - startMs) / (endMs - startMs), 0, 1);
+  }
+  // Fallback to even index spacing when timestamps are missing
   return (n > 1) ? (i / (n - 1)) : 0;
 }
 
@@ -768,7 +789,7 @@ function finalizeAfterRowsParsed() {
 
   // --- Average speed during flight (altitude > 0) ---
   (function updateAvgSpeedDuringFlight(){
-    const el = document.getElementById('avg-speed');
+    const el = dom.avgSpeed;
     if (!el) return;
 
     // We rely on the same takeoff/landing detection as above
@@ -995,7 +1016,7 @@ function parseFromCSVText(text) {
 
   // --- Callsign display in DOM ---
   // Update the DOM element for callsign (if available)
-  const csEl = document.getElementById('info-callsign');
+  const csEl = dom.infoCallsign;
   if (csEl) csEl.textContent = callsignVal || '—';
 }
 
@@ -1010,7 +1031,7 @@ function createMinimap() {
     let s = 1, offX = 0, offY = 0;
 
     p.setup = () => {
-      const host = document.getElementById('flight-path-canvas');
+      const host = dom.flightPathHost;
       const w = host?.clientWidth || 300;
       const h = host?.clientHeight || 300;
       p.createCanvas(w, h);
@@ -1146,7 +1167,7 @@ function createSpeedChart() {
     let sY = 1, offY = 0;        // mapping Y (speed)
 
     p.setup = () => {
-      const host = document.getElementById('flight-speed-canvas');
+      const host = dom.flightSpeedHost;
       const w = host?.clientWidth || 300;
       const h = host?.clientHeight || 120;
       p.createCanvas(w, h);
@@ -1251,7 +1272,7 @@ function createSpeedChart() {
 
     function drawAxes() {
       // 1) Update DOM with max speed
-      const el = document.getElementById('max-speed');
+      const el = dom.maxSpeed;
       if (el && Number.isFinite(range.spdMax)) {
         el.textContent = Math.round(range.spdMax) + ' kt';
       }

@@ -156,7 +156,6 @@ h1 {
 }
 
 
-
 #cursor-plane, #heading-plane {
     position: absolute;
     left: 0;
@@ -166,6 +165,14 @@ h1 {
     will-change: transform;
     z-index: 9;
     transition: all 100ms ease;
+}
+
+#cursor-plane {
+    /* Strong white halo to pop on dark backgrounds */
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5))
+        drop-shadow(0 0 6px rgba(255, 255, 255, 0.4))
+        /* Soft ambient shadow for depth */
+        drop-shadow(0 2px 3px rgba(0, 0, 0, 0.7));
 }
 
 #flight-path-canvas, #flight-speed-canvas {
@@ -196,4 +203,61 @@ h1 {
 
 .hidden {
     display: none;
+}
+
+.button {
+    position: absolute;
+    bottom: 16px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: calc(100% - 24px);
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--txt);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--ring);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 140ms ease, border-color 140ms ease;
+    text-align: center;
+}
+
+.button:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(121,184,255,0.65);
+}
+
+.button svg {
+    /* Icon color matches text color */
+    fill: white;
+    width: 24px;
+}
+
+.button p {
+    margin: 0;
+}
+
+.speed-key-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+    color: var(--sub);
+}
+
+.speed-key-row:nth-of-type(1) {
+    margin-top: 200px;
+}
+
+.color-key {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background-color: red;
+    
 }
