@@ -106,6 +106,7 @@ h1 {
 #canvas-container {
     position: absolute;
     inset: 0;
+    cursor: none;
 }
 
 .info-card {
@@ -155,6 +156,41 @@ h1 {
     text-align: end;
 }
 
+.cursor-status-indicator {
+    position: absolute;
+    top: 24px;
+    left: 352px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    border-radius: 8px;
+    background: var(--card);
+    border: 1px solid var(--ring);
+    backdrop-filter: blur(10px);
+    pointer-events: none;
+    padding: 8px 16px;
+    gap: 6px;
+    visibility: hidden;
+}
+
+.cursor-status-indicator svg {
+    width: 32px;
+    height: 32px;
+}
+
+.show {
+    visibility: visible;
+}
+
+.cursor-status-msg {
+    display: flex;
+    flex-direction: column;
+}
+
+.cursor-status-msg-subtitle {
+    font-size: 12px;
+    color: var(--sub);
+}
 
 #cursor-plane, #heading-plane {
     position: absolute;
@@ -168,11 +204,97 @@ h1 {
 }
 
 #cursor-plane {
+
     /* Strong white halo to pop on dark backgrounds */
-    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.5))
-        drop-shadow(0 0 6px rgba(255, 255, 255, 0.4))
+    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.4))
+        drop-shadow(0 0 6px rgba(255, 255, 255, 0.3))
         /* Soft ambient shadow for depth */
         drop-shadow(0 2px 3px rgba(0, 0, 0, 0.7));
+}
+
+.strobes-control-options {
+    display: flex;
+    flex-direction: row;
+    gap: 16px;
+}
+
+.strobes-control-options label {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 3px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.opt-label-text {
+    margin-top: 2px;
+}
+
+.strobe {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    position: absolute;
+    left: 2px;
+    filter: blur(2px);
+}
+
+/* CSS-only toggle for strobes using the #strobes-switch checkbox */
+/* Default OFF */
+body:has(#strobes-off:checked) .strobe {
+  visibility: hidden;
+  animation: none;
+}
+
+/* Airbus: single rapid blink */
+body:has(#strobes-airbus:checked) .strobe {
+  visibility: visible;
+  animation: strobeSingleBlink 1.2s infinite;
+}
+
+/* Boeing: double rapid blink */
+body:has(#strobes-boeing:checked) .strobe {
+  visibility: visible;
+  animation: strobeDoubleBlink 1.5s infinite;
+}
+
+/* Airbus single blink keyframes */
+@keyframes strobeSingleBlink {
+  0%   { opacity: 0; }
+  8%  { opacity: 1; }
+  16%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+/* Boeing double blink (you already have this) */
+@keyframes strobeDoubleBlink {
+  0%   { opacity: 0; }
+  5%   { opacity: 1; }
+  10%  { opacity: 0; }
+  15%  { opacity: 1; }
+  20%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+#strobe-left {
+    background-color: red;
+    top: 0px;
+    transform: translate(0%, -30%);
+}
+
+#strobe-right {
+    background-color: rgb(7, 232, 30);
+    bottom: 2px;
+}
+
+@keyframes strobeDoubleBlink {
+    0%   { opacity: 0; }
+    5%   { opacity: 1; }   /* quick ON */
+    10%  { opacity: 0; }   /* quick OFF */
+    15%  { opacity: 1; }   /* second quick ON */
+    20%  { opacity: 0; }   /* second quick OFF */
+    100% { opacity: 0; }   /* stay off until next cycle */
 }
 
 #flight-path-canvas, #flight-speed-canvas {

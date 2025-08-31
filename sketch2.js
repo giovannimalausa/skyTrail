@@ -22,15 +22,14 @@ let trail; // Off-screen graphics buffer to draw persistent trail (rosette lines
 let trackDir = null; // Overall track direction: 'E' (eastbound) or 'W' (westbound)
 
 // DOM info card panel and references to its fields
-let infoCard; // DOM panel with live data
 let infoRefs; // populated in setup when HTML elements exist
 
 let selectedIdx = 0; // Currently selected point index (based on mouse position)
+let cursorFollowMouse = true; // toggle whether cursor follows mouse
 
 // Centralized DOM cache
 let dom = {};
 function cacheDomRefs() {
-    dom.leftInfoCard   = document.getElementById('left-info-card');
     dom.dashboard      = document.getElementById('dashboard');
     dom.welcome        = document.getElementById('welcome');
     dom.dropZone       = document.getElementById('drop-zone');
@@ -49,6 +48,7 @@ function cacheDomRefs() {
     dom.infoDate       = document.getElementById('info-date');
     dom.infoSince      = document.getElementById('info-since');
     dom.infoUntil      = document.getElementById('info-until');
+    dom.infoFlightTime = document.getElementById('info-total-flight-time');
     dom.infoSpeed      = document.getElementById('info-speed');
     dom.infoHeading    = document.getElementById('info-heading');
     dom.infoLocation   = document.getElementById('info-location');
@@ -58,7 +58,9 @@ function cacheDomRefs() {
     dom.infoTakeoff    = document.getElementById('info-actual-takeoff-time');
     dom.infoLanding    = document.getElementById('info-actual-landing-time');
 
-    dom.resetButton   = document.getElementById('reset-button');
+    dom.cursorStsInd   = document.getElementById('cursor-status-indicator');
+
+    dom.resetButton    = document.getElementById('reset-button');
 
     // Speed legend swatches: 1:1 with SPEED_BANDS, ids start at 0
     dom.speedLegend = new Array(SPEED_BANDS.length);
@@ -75,7 +77,7 @@ function updateSpeedLegend() {
 }
 
 // Flight start and end times (milliseconds since epoch)
-let startimestampMs = null, endMs = null;
+let startTimestampMs = null, endMs = null;
 
 // Detected takeoff/landing times (altitude transition-based)
 let actualTakeOffMs = null, actualLandingMs = null; // computed from altitude transitions
@@ -94,12 +96,12 @@ const KNOT_TO_FPS = 1.68781; // knots -> feet/second
 // 520+   : Fast cruise / jetstream → Pink
 const GS_BREAKS = [0, 40, 160, 300, 420, 520];
 const SPEED_BANDS = [
-  { min: 0,   max: 40,   color: [255,  66,  69] },  // Red
-  { min: 40,  max: 160,  color: [255, 146,  48] },  // Orange
-  { min: 160, max: 300,  color: [ 48, 209,  88] },  // Green
-  { min: 300, max: 420,  color: [  0, 145, 255] },  // Blue
-  { min: 420, max: 520,  color: [  219, 52, 242] },  // Purple
-  { min: 520, max: Infinity, color: [255, 55, 95] } // Pink (fastest)
+    { min: 0,   max: 40,       color: [255,  66,  69] },  // Red
+    { min: 40,  max: 160,      color: [255, 146,  48] },  // Orange
+    { min: 160, max: 300,      color: [ 48, 209,  88] },  // Green
+    { min: 300, max: 420,      color: [  0, 145, 255] },  // Blue
+    { min: 420, max: 520,      color: [ 219, 52, 242] },  // Purple
+    { min: 520, max: Infinity, color: [ 255, 55,  95] }   // Pink (fastest)
 ];
 
 // Stroke weight scale anchored to fixed aviation GS (knots)
@@ -144,31 +146,23 @@ function setup() {
     updateSpeedLegend();
 
     // Side info card. Cache references from centralized DOM cache
-    infoCard = dom.leftInfoCard;
     window.infoRefs = {
-        date:    dom.infoDate,
-        since:   dom.infoSince,
-        until:   dom.infoUntil,
-        speed:   dom.infoSpeed,
-        heading: dom.infoHeading,
-        loc:     dom.infoLocation,
-        alt:     dom.infoAltitude,
-        tilt:    dom.infoTilt,
-        callsign: dom.infoCallsign,
+        date:          dom.infoDate,
+        since:         dom.infoSince,
+        until:         dom.infoUntil,
+        speed:         dom.infoSpeed,
+        heading:       dom.infoHeading,
+        loc:           dom.infoLocation,
+        alt:           dom.infoAltitude,
+        tilt:          dom.infoTilt,
+        callsign:      dom.infoCallsign,
         takeoffActual: dom.infoTakeoff,
-        landingActual: dom.infoLanding
+        landingActual: dom.infoLanding,
+        flightTime:    dom.infoFlightTime,
     };
-    if (!infoCard) {
-        console.warn('left-info-card element not found in HTML. Add it to index.html.');
-    }
 
     // Wire up welcome/upload UI and swap screens after upload
-    const dashboard = dom.dashboard;
-    const welcome = dom.welcome;
-    const dz = dom.dropZone;
-    const fileEl = dom.csvInput;
-
-    if (dz && fileEl) {
+    if (dom.dropZone && dom.csvInput) {
         const onFiles = (files) => {
             const f = files && files[0];
             if (!f) return;
@@ -178,8 +172,8 @@ function setup() {
             reader.onload = (e) => {
                 parseFromCSVText(String(e.target.result));
 
-                if (welcome) welcome.classList.add('hidden');
-                if (dashboard) dashboard.classList.remove('hidden');
+                if (dom.welcome) dom.welcome.classList.add('hidden');
+                if (dom.dashboard) dom.dashboard.classList.remove('hidden');
 
                 if (!minimap) {
                     createMinimap();
@@ -197,20 +191,20 @@ function setup() {
             reader.readAsText(f);
         };
 
-        fileEl.addEventListener('change', (ev) => {
+        dom.csvInput.addEventListener('change', (ev) => {
             onFiles(ev.target.files);
         });
 
-        dz.addEventListener('dragover', (ev) => {
+        dom.csvInput.addEventListener('dragover', (ev) => {
             ev.preventDefault();
-            dz.classList.add('hover');
+            dom.csvInput.classList.add('hover');
         });
 
-        dz.addEventListener('dragleave', () => dz.classList.remove('hover'));
+        dom.csvInput.addEventListener('dragleave', () => dom.csvInput.classList.remove('hover'));
 
-        dz.addEventListener('drop', (ev) => {
+        dom.csvInput.addEventListener('drop', (ev) => {
             ev.preventDefault();
-            dz.classList.remove('hover');
+            dom.csvInput.classList.remove('hover');
             if (ev.dataTransfer && ev.dataTransfer.files && ev.dataTransfer.files.length) {
                 onFiles(ev.dataTransfer.files);
             }
@@ -248,7 +242,7 @@ function resetDataHolders() {
     rows = [];
     bounds = { latMin:  1e9, latMax: -1e9, lonMin:  1e9, lonMax: -1e9 };
     range  = { altMin:  1e9, altMax: -1e9, spdMin: 1e9, spdMax: -1e9 };
-    startimestampMs = null; endMs = null; trackDir = null;
+    startTimestampMs = null; endMs = null; trackDir = null;
     actualTakeOffMs = null; actualLandingMs = null;
     actualTakeOffTime = null; actualLandingTime = null;
 }
@@ -269,6 +263,7 @@ function resetToWelcome() {
     set(refs.loc, '—');
     set(refs.alt, '—');
     set(refs.tilt, '—');
+    if (dom.infoFlightTime) dom.infoFlightTime.textContent = '—';
     set(refs.takeoffActual, '—');
     set(refs.landingActual, '—');
 
@@ -334,7 +329,7 @@ function parseFromCSVText(text) {
     if (!text) return;
 
     // Split the input text into lines, removing any empty lines
-    const lines = text.split(/\r?\n/).filter(l => l.trim().length);
+    const lines = text.split(/\r?\n/).filter(l => l.trim().length); // /\r?\n/ matches \n (Unix-style line endings) or \r\n (Windows-style).
     if (!lines.length) return;
 
     // Parse the header row and normalize header names
@@ -354,8 +349,8 @@ function parseFromCSVText(text) {
         : '';
 
     // Iterate over each CSV data line (skip header row)
-    for (let li = 1; li < lines.length; li++) {
-        const cols = splitCSVLine(lines[li]);
+    for (let line = 1; line < lines.length; line++) {
+        const cols = splitCSVLine(lines[line]);
         if (!cols.length) continue;
 
         // --- Position parsing (latitude, longitude) ---
@@ -415,13 +410,9 @@ function parseFromCSVText(text) {
 function finalizeAfterRowsParsed() {
     const validTimes = rows.filter(r => Number.isFinite(r.timestampMs));
     if (validTimes.length) {
-        startimestampMs = validTimes[0].timestampMs;
+        startTimestampMs = validTimes[0].timestampMs;
         endMs   = validTimes[validTimes.length - 1].timestampMs;
     }
-
-    // Compute effective takeoff and landing times from altitude transitions
-    actualTakeOffMs = null; actualLandingMs = null;
-    actualTakeOffTime = null; actualLandingTime = null;
 
     // Takeoff detection: find the first row that has a valid timestamp (timestampMs)
     // and an altitude strictly greater than zero (we treat this as "airborne").
@@ -431,8 +422,8 @@ function finalizeAfterRowsParsed() {
         // Only accept rows that have both a finite timestamp and altitude,
         // and when altitude becomes > 0.
         if (Number.isFinite(r.timestampMs) && Number.isFinite(r.alt) && r.alt > 0) {
-            takeoffIdx = i;   // remember the index where flight becomes airborne
-            break;         // stop at the first occurrence
+            takeoffIdx = i; // remember the index where flight becomes airborne
+            break;          // stop at the first occurrence
         }
     }
 
@@ -462,6 +453,20 @@ function finalizeAfterRowsParsed() {
                 break; // stop at the first detected landing
             }
         }
+    }
+
+    // --- Total flight time (airborne duration) ---
+    if (
+        Number.isFinite(actualTakeOffMs) &&
+        Number.isFinite(actualLandingMs) &&
+        actualLandingMs > actualTakeOffMs
+    ) {
+        if (dom.infoFlightTime) {
+            // Use HH:MM:SS via formatter
+            dom.infoFlightTime.textContent = formatHMS(actualLandingMs - actualTakeOffMs);
+        }
+    } else {
+        if (dom.infoFlightTime) dom.infoFlightTime.textContent = '—';
     }
 
     // --- Average speed during flight (altitude > 0) ---
@@ -561,7 +566,6 @@ function draw() {
 // This function computes the coordinates and attributes needed to draw the flight visualization,
 // mapping each row of flight data to a point around a circular path (radius encodes alt).
 function buildRosettePoints() {
-    const n = rows.length;
     const altMin = range.altMin, altMax = range.altMax;
     const center = { x: width * 0.5, y: height * 0.5 };
     const maxRadius = (min(width, height) / 2) - UI.margin * 2;
@@ -569,11 +573,11 @@ function buildRosettePoints() {
     const baseR = maxRadius - varR;
 
     let pts = [];
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        const t = timeFracForRow(row, i, n);
+        const t = timeFracForRow(row, i, rows.length);
         const angle = HALF_PI + t * TWO_PI;
-        const radius = baseR + map(row.alt, altMin, altMax, 0, varR, true);
+        const radius = baseR + map(row.alt, altMin, altMax, 0, varR, true); // map(value, inputMin, inputMax, outputMin, outputMax, [clamp])
         const x = center.x + cos(angle) * radius;
         const y = center.y + sin(angle) * radius;
         const idx = i;
@@ -586,45 +590,51 @@ function buildRosettePoints() {
     return { pts, center, baseR, varR };
 }
 
-// Soft blending around band edges (in knots)
-const SMOOTH_KT = 12; // size of the gradient zone at each boundary
-
-function lerpRGB(c0, c1, t) {
-    const r = Math.round(c0[0] + (c1[0] - c0[0]) * t);
+// Linear interpolation between two RGB colors
+function lerpRGB(c0, c1, t) { // c0: start color [R, G, B], c1: end color [R, G, B], t: interpolation factor
+    // Math.round(...) to ensure integer RGB values
+    const r = Math.round(c0[0] + (c1[0] - c0[0]) * t); // (c1[0] - c0[0]) * t = how far to move towards c1[0]
     const g = Math.round(c0[1] + (c1[1] - c0[1]) * t);
     const b = Math.round(c0[2] + (c1[2] - c0[2]) * t);
-    return [r, g, b];
+    return [r, g, b]; // return the interpolated color as an array [R, G, B]
 }
 
+// Get color for a specific speed value and add smooth blending between bands
 function speedColor(spd) {
-    const v = Number.isFinite(spd) ? spd : 0;
+    const SMOOTH_KT = 15; // size of the gradient zone at each boundary
 
+    // Find which band the speed falls into
     for (let i = 0; i < SPEED_BANDS.length; i++) {
         const band = SPEED_BANDS[i];
-        if (v >= band.min && v < band.max) {
-            let base = band.color;
+        if (spd >= band.min && spd < band.max) {
+            let baseColor = band.color;
+            let gradientColor = baseColor;
 
-            // Blend IN from previous band near the lower edge
+            // Blend IN from previous band near the lower boundary
             if (i > 0) {
-                const distFromMin = v - band.min; // ≥ 0 inside band
+                // knots above this band's min (0 at boundary)
+                const distFromMin = spd - band.min; // distance above this band's lower limit (0 exactly at the boundary)
+                // only blend within the first SMOOTH_KT knots
                 if (distFromMin < SMOOTH_KT) {
-                    const prev = SPEED_BANDS[i - 1].color;
-                    const t = Math.max(0, Math.min(1, distFromMin / SMOOTH_KT));
-                    base = lerpRGB(prev, base, t);
+                    const prevColor = SPEED_BANDS[i - 1].color; // previous band's RGB
+                    // 0 → use prevColor, 1 → use this band's color
+                    const t = constrain(distFromMin / SMOOTH_KT, 0, 1); // t = normalized blending factor (how far the speed is inside the smoothing zone), forced to stay within [0, 1].
+                    // mix prev → current based on t
+                    gradientColor = lerpRGB(prevColor, baseColor, t);
                 }
             }
 
             // Blend OUT to next band near the upper edge (if finite upper bound)
             if (i < SPEED_BANDS.length - 1 && Number.isFinite(band.max)) {
-                const distToMax = band.max - v; // ≥ 0 inside band
+                const distToMax = band.max - spd; // distance above this band's upper limit (0 exactly at the boundary)
                 if (distToMax < SMOOTH_KT) {
-                    const next = SPEED_BANDS[i + 1].color;
-                    const t = Math.max(0, Math.min(1, 1 - (distToMax / SMOOTH_KT)));
-                    base = lerpRGB(base, next, t);
+                    const nextColor = SPEED_BANDS[i + 1].color;
+                    const t = constrain(1 - (distToMax / SMOOTH_KT), 0, 1);
+                    gradientColor = lerpRGB(gradientColor, nextColor, t);
                 }
             }
 
-            return { r: base[0], g: base[1], b: base[2], a: 92 };
+            return { r: gradientColor[0], g: gradientColor[1], b: gradientColor[2], a: 92 };
         }
     }
 
@@ -684,7 +694,9 @@ function drawRosette() {
     }
 
     // --- Interaction ---
-    selectedIdx = getIndexFromMouse(center, pts.length - 2);
+    if (cursorFollowMouse) {
+        selectedIdx = getIndexFromMouse(center, pts.length - 2);
+    }
     const hdgNow = (rows[selectedIdx] && Number.isFinite(rows[selectedIdx].hdg)) ? rows[selectedIdx].hdg : null;
     drawHeadingViz(center, baseR, hdgNow);
     drawIndicator(pts, selectedIdx);
@@ -803,18 +815,14 @@ function getIndexFromMouse(center, count) {
     if (t < 0) t += TWO_PI;
     t /= TWO_PI;
 
-    if (Number.isFinite(startimestampMs) && Number.isFinite(endMs) && endMs > startimestampMs) {
-        const targetimestampMs = startimestampMs + t * (endMs - startimestampMs);
-        let bestIdx = 0;
-        let bestDiff = Infinity;
-        for (let i = 0; i < rows.length; i++) {
-            const tm = rows[i] && rows[i].timestampMs;
-            if (!Number.isFinite(tm)) continue;
-            const d = Math.abs(tm - targetimestampMs);
-            if (d < bestDiff) { bestDiff = d; bestIdx = i; }
-        }
-        if (bestDiff !== Infinity) return constrain(bestIdx, 0, count - 1);
+    const targetimestampMs = startTimestampMs + t * (endMs - startTimestampMs);
+    let bestIdx = 0;
+    let bestDiff = Infinity;
+    for (let i = 0; i < rows.length; i++) {
+        const d = Math.abs(rows[i].timestampMs - targetimestampMs);
+        if (d < bestDiff) { bestDiff = d; bestIdx = i; }
     }
+    if (bestDiff !== Infinity) return constrain(bestIdx, 0, count - 1);
 
     const idx = Math.round(t * (count - 1));
     return constrain(idx, 0, count - 1);
@@ -888,11 +896,9 @@ function drawHeadingViz(center, baseR, headingDeg) {
 }
 
 function updateInfoCard(p) {
-    if (!infoCard || !p) return;
-
     const tStr = (Number.isFinite(p.timestampMs)) ? formatUTC(p.timestampMs) : '—';
     
-    const takeMs = Number.isFinite(actualTakeOffMs) ? actualTakeOffMs : startimestampMs;
+    const takeMs = Number.isFinite(actualTakeOffMs) ? actualTakeOffMs : startTimestampMs;
     const landMs = Number.isFinite(actualLandingMs) ? actualLandingMs : endMs;
 
     const since = (Number.isFinite(p.timestampMs) && Number.isFinite(takeMs) && p.timestampMs >= takeMs)
@@ -911,7 +917,7 @@ function updateInfoCard(p) {
         : `${nf(fpa, 1, 1)}° ${fpa > 0 ? '↑ Climb' : '↓ Descent'}`;
     const hdgStr = Number.isFinite(p.hdg) ? `${Math.round(p.hdg)}°` : '—';
     const spdStr = Number.isFinite(p.spd) ? `${Math.round(p.spd)} kt` : '—';
-    const altStr = Number.isFinite(p.alt) ? `${Math.round(p.alt)} ft` : '—';
+    const altStr = Number.isFinite(p.alt) ? `${Math.round(p.alt).toLocaleString('fr-FR')} ft` : '—';
     const locStr = formatLatLon(p.lat, p.lon);
 
     const refs = window.infoRefs || {};
@@ -1120,13 +1126,13 @@ function createSpeedChart() {
         }
 
         function computeFit() {
-            if (!rows.length || !Number.isFinite(startimestampMs) || !Number.isFinite(endMs) || endMs <= startimestampMs) {
+            if (!rows.length || !Number.isFinite(startTimestampMs) || !Number.isFinite(endMs) || endMs <= startTimestampMs) {
                 pts.length = 0; return;
             }
             const innerW = Math.max(1, p.width  - pad*2);
             const innerH = Math.max(1, p.height - pad*2);
 
-            const tSpan = endMs - startimestampMs; // total ms
+            const tSpan = endMs - startTimestampMs; // total ms
             sX = innerW / tSpan;           // px per ms
             offX = pad;                    // left padding
 
@@ -1137,7 +1143,7 @@ function createSpeedChart() {
         }
 
         function project(row) {
-            const x = (row.timestampMs - startimestampMs) * sX + offX;
+            const x = (row.timestampMs - startTimestampMs) * sX + offX;
             // y grows downward: spdMin → bottom, spdMax → top
             const yVal = (row.spd - range.spdMin) * sY; // 0..innerH
             const y = p.height - (yVal + offY);
@@ -1147,7 +1153,7 @@ function createSpeedChart() {
         function rebuild() {
             pts.length = 0;
             computeFit();
-            if (!rows.length || !Number.isFinite(startimestampMs) || !Number.isFinite(endMs) || endMs <= startimestampMs) return;
+            if (!rows.length || !Number.isFinite(startTimestampMs) || !Number.isFinite(endMs) || endMs <= startTimestampMs) return;
 
             for (const r of rows) {
                 if (Number.isFinite(r.timestampMs) && Number.isFinite(r.spd)) {
@@ -1236,16 +1242,15 @@ function createSpeedChart() {
 
         function drawCursor() {
             const i = window.skyTrailState.cursorIndex;
-            if (!Number.isFinite(i) || !rows[i]) return;
-            const r = rows[i];
-            if (!Number.isFinite(r.timestampMs)) return;
-            const pr = project(r);
+            if (!Number.isFinite(i)) return; // index is constrained upstream; rows[i] assumed to exist
+            if (!Number.isFinite(rows[i].timestampMs)) return;
+            const pr = project(rows[i]);
 
             p.stroke(255, 120);
             p.strokeWeight(1);
             p.line(pr.x, 0, pr.x, p.height);
 
-            if (Number.isFinite(r.spd)) {
+            if (Number.isFinite(rows[i].spd)) {
                 p.noStroke();
                 p.fill(255, 255, 0, 230);
                 p.circle(pr.x, pr.y, 5);
@@ -1253,7 +1258,7 @@ function createSpeedChart() {
                 p.fill(255);
                 p.textSize(10);
                 p.textAlign(p.LEFT, p.BOTTOM);
-                const lbl = Math.round(r.spd) + ' kt';
+                const lbl = Math.round(rows[i].spd) + ' kt';
                 const tx = Math.min(pr.x + 6, p.width - 30);
                 const ty = Math.max(12, pr.y - 6);
                 p.text(lbl, tx, ty);
@@ -1272,6 +1277,21 @@ function createSpeedChart() {
 function keyPressed() {
     if (key === 'a' || key === 'A') {
         saveCanvas('altitude_rosette', 'png');
+    }
+    if (key === ' ') {
+        cursorFollowMouse = !cursorFollowMouse;
+        dom.cursorStsInd.classList.toggle('show');
+        return false; // prevent page scroll
+    }
+
+    // Arrow keys: step selection index by ±1 (only if follow-mouse is off)
+    if (keyCode === LEFT_ARROW || keyCode === RIGHT_ARROW) {
+        if (!cursorFollowMouse) {
+            const delta = (keyCode === RIGHT_ARROW) ? 1 : -1;
+            const last = rows.length - 1;
+            selectedIdx = Math.max(0, Math.min(last, selectedIdx + delta));
+        }
+        return false; // prevent page scroll
     }
 }
 
@@ -1344,9 +1364,6 @@ function niceCeilToStep(v, step) {
 }
 
 function timeFracForRow(row, i, n) {
-    const ms = row && row.timestampMs;
-    if (Number.isFinite(startimestampMs) && Number.isFinite(endMs) && endMs > startimestampMs && Number.isFinite(ms)) {
-        return constrain((ms - startimestampMs) / (endMs - startimestampMs), 0, 1);
-    }
-    return (n > 1) ? (i / (n - 1)) : 0;
+    const ms = row.timestampMs;
+    return (ms - startTimestampMs) / (endMs - startTimestampMs);
 }

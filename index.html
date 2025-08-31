@@ -37,6 +37,7 @@
                     <div class="info-row"><span class="k">Callsign</span><span id="info-callsign" class="v">—</span></div>
                     <div class="info-row"><span class="k">Takeoff Time</span><span id="info-actual-takeoff-time" class="v">—</span></div>
                     <div class="info-row"><span class="k">Landing Time</span><span id="info-actual-landing-time" class="v">—</span></div>
+                    <div class="info-row"><span class="k">Total Flight Time</span><span id="info-total-flight-time" class="v">—</span></div>
                 </div>
 
                 <div class="info-card-section">
@@ -48,40 +49,28 @@
                     <div class="info-row"><span class="k">Heading</span><span id="info-heading" class="v">—</span></div>
                     <div class="info-row"><span class="k">Location</span><span id="info-location" class="v">—</span></div>
                     <div class="info-row"><span class="k">Altitude</span><span id="info-altitude" class="v">—</span></div>
-                    <div class="info-row"><span class="k">Tilt (FPA)</span><span id="info-tilt" class="v">—</span></div>
+                    <div class="info-row"><span class="k">Flight Path Angle</span><span id="info-tilt" class="v">—</span></div>
                 </div>
 
                 <div class="info-card-section speed-legend">
                     <div class="title">Speed Reference Key</div>
-                    
                     <div class="speed-key-row">
-                        <div class="color-key" id="color-band-0"></div>
-                        <span class="k">0-39 kt</span>
+                        <div class="color-key" id="color-band-0"></div><span class="k">0-39 kt</span>
                     </div>
-
                     <div class="speed-key-row">
-                        <div class="color-key" id="color-band-1"></div>
-                        <span class="k">40-159 kt</span>
+                        <div class="color-key" id="color-band-1"></div><span class="k">40-159 kt</span>
                     </div>
-
                     <div class="speed-key-row">
-                        <div class="color-key" id="color-band-2"></div>
-                        <span class="k">160-299 kt</span>
+                        <div class="color-key" id="color-band-2"></div><span class="k">160-299 kt</span>
                     </div>
-
                     <div class="speed-key-row">
-                        <div class="color-key" id="color-band-3"></div>
-                        <span class="k">300-419 kt</span>
+                        <div class="color-key" id="color-band-3"></div><span class="k">300-419 kt</span>
                     </div>
-
                     <div class="speed-key-row">
-                        <div class="color-key" id="color-band-4"></div>
-                        <span class="k">420-519 kt</span>
+                        <div class="color-key" id="color-band-4"></div><span class="k">420-519 kt</span>
                     </div>
-
                     <div class="speed-key-row">
-                        <div class="color-key" id="color-band-5"></div>
-                        <span class="k">520+ kt</span>
+                        <div class="color-key" id="color-band-5"></div><span class="k">520+ kt</span>
                     </div>
                 </div>
             </aside>
@@ -101,6 +90,16 @@
                     <div id="flight-speed-canvas"></div>
                     <div class="info-row"><span class="k">Max Speed</span><span id="max-speed" class="v">—</span></div>
                     <div class="info-row"><span class="k">Average Speed in Flight</span><span id="avg-speed" class="v">—</span></div>
+                </div>
+
+                <div class="strobes-control">
+                    <div class="title">Cursor Strobes</div>
+                    <div class="strobes-control-options">
+                        <label><input type="radio" name="strobes" id="strobes-off"><span class="opt-label-text">Off</span></label>
+                        <label><input type="radio" name="strobes" id="strobes-airbus"><span class="opt-label-text">Airbus</span></label>
+                        <label><input type="radio" name="strobes" id="strobes-boeing" checked><span class="opt-label-text">Boeing</span></label>
+                    </div>
+                        
                 </div>
 
                 <div>
@@ -126,6 +125,22 @@
                 <svg width="28" height="28" viewBox="0 0 111 100" fill="none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
                     <path d="M110.777 49.707C110.729 43.9941 102.965 39.8438 93.6389 39.8438H73.9608C71.2265 39.8438 70.2012 39.4043 68.5898 37.5488L35.7773 1.75781C34.752 0.585938 33.4824 0 32.0176 0H26.3535C25.084 0 24.3516 1.12305 24.9863 2.49023L41.8809 39.8438L17.0762 42.6758L8.23825 26.4648C7.60345 25.2441 6.52925 24.707 4.91795 24.707H2.81835C1.54875 24.707 0.71875 25.5371 0.71875 26.8066V72.6074C0.71875 73.877 1.54875 74.6582 2.81835 74.6582H4.91795C6.52925 74.6582 7.60345 74.1211 8.23825 72.9492L17.0762 56.7383L41.8809 59.5703L24.9863 96.9238C24.3516 98.2422 25.084 99.4141 26.3535 99.4141H32.0176C33.4824 99.4141 34.752 98.7793 35.7773 97.6562L68.5898 61.8164C70.2012 60.0098 71.2265 59.5703 73.9608 59.5703H93.6389C102.965 59.5703 110.729 55.3711 110.777 49.707Z" fill="white" fill-opacity="0.85"/>
                 </svg>
+                <div class="strobe" id="strobe-left"></div>
+                <div class="strobe" id="strobe-right"></div>
+            </div>
+
+            <div class="cursor-status-indicator" id="cursor-status-indicator">
+                <svg width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <g opacity="0.75">
+                        <path opacity="0.8" d="M37.7854 19.2949C38.2275 19.4429 38.6145 19.721 38.8958 20.0928C39.177 20.4646 39.3395 20.9132 39.3616 21.3789C39.3835 21.8443 39.2644 22.3056 39.0198 22.7021C38.7748 23.0989 38.4148 23.4126 37.9885 23.6016L37.9417 23.6201L30.6917 26.4053L38.8674 34.5801C39.1926 34.9053 39.3752 35.3467 39.3752 35.8066C39.3752 36.2666 39.1927 36.7079 38.8674 37.0332L37.0334 38.8672C36.8723 39.0288 36.6808 39.1576 36.47 39.2451C36.2593 39.3326 36.0331 39.377 35.8049 39.377C35.5767 39.3769 35.3506 39.3326 35.1399 39.2451C34.9291 39.1576 34.7375 39.0289 34.5764 38.8672L26.4006 30.6914L23.6213 37.9404L23.6028 37.9883C23.4256 38.4009 23.1305 38.7526 22.7551 38.999C22.3797 39.2455 21.9396 39.3756 21.4905 39.374H21.3782C20.9099 39.3544 20.4587 39.1916 20.0862 38.9072C19.7138 38.6229 19.4375 38.2306 19.2952 37.7842L17.8752 33.4375L33.4377 17.875L37.7854 19.2949ZM31.3059 17.1787L17.179 31.3047L15.7864 27.041L27.0413 15.7861L31.3059 17.1787ZM13.3958 11.6885C13.8101 11.5895 14.2438 11.6077 14.6487 11.7402L24.9094 15.0898L15.0901 24.9092L11.7405 14.6484C11.608 14.2436 11.5907 13.8098 11.6897 13.3955C11.7887 12.9813 11.9999 12.602 12.301 12.3008C12.6022 11.9996 12.9814 11.7875 13.3958 11.6885Z" fill="white"/>
+                    </g>
+                    <rect x="35.4148" y="7.41504" width="3.99801" height="40" rx="1.99901" transform="rotate(45 35.4148 7.41504)" fill="white"/>
+                </svg>
+                <div class="cursor-status-msg">
+                    Cursor Paused
+                    <span class="cursor-status-msg-subtitle">Press <kbd>Space</kbd> to activate</span>
+                </div>
+                
             </div>
         </section>
 
