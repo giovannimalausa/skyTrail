@@ -35,14 +35,15 @@ function cacheDomRefs() {
     dom.dropZone       = document.getElementById('drop-zone');
     dom.csvInput       = document.getElementById('csv-input');
 
+    // Main canvas container
+    dom.canvasContainer = document.getElementById('canvas-container');
+
     dom.cursorPlane    = document.getElementById('cursor-plane');
     dom.headingPlane   = document.getElementById('heading-plane');
 
+    // Secondary canvas elements
     dom.flightPathHost = document.getElementById('flight-path-canvas');
     dom.flightSpeedHost= document.getElementById('flight-speed-canvas');
-
-    dom.avgSpeed       = document.getElementById('avg-speed');
-    dom.maxSpeed       = document.getElementById('max-speed');
 
     // Info card fields
     dom.infoDate       = document.getElementById('info-date');
@@ -58,15 +59,22 @@ function cacheDomRefs() {
     dom.infoTakeoff    = document.getElementById('info-actual-takeoff-time');
     dom.infoLanding    = document.getElementById('info-actual-landing-time');
 
-    dom.cursorStsInd   = document.getElementById('cursor-status-indicator');
+    dom.avgSpeed       = document.getElementById('avg-speed');
+    dom.maxSpeed       = document.getElementById('max-speed');
 
     dom.resetButton    = document.getElementById('reset-button');
 
-    // Speed legend swatches: 1:1 with SPEED_BANDS, ids start at 0
+    // Speed legend swatches
     dom.speedLegend = new Array(SPEED_BANDS.length);
     for (let i = 0; i < SPEED_BANDS.length; i++) {
         dom.speedLegend[i] = document.getElementById(`color-band-${i}`);
     }
+
+    // Additional cursor status indicator DOM elements
+    dom.cursorOnIcon         = document.getElementById('cursor-on-icon');
+    dom.cursorOffIcon        = document.getElementById('cursor-off-icon');
+    dom.cursorStatusTitle    = document.getElementById('cursor-status-title');
+    dom.cursorStatusSubtitle = document.querySelector('.cursor-status-msg-subtitle');
 }
 
 function updateSpeedLegend() {
@@ -77,7 +85,7 @@ function updateSpeedLegend() {
 }
 
 // Flight start and end times (milliseconds since epoch)
-let startTimestampMs = null, endMs = null;
+let startTimestampMs = null, endTimestampMs = null;
 
 // Detected takeoff/landing times (altitude transition-based)
 let actualTakeOffMs = null, actualLandingMs = null; // computed from altitude transitions
@@ -140,7 +148,7 @@ function setup() {
     let c = createCanvas(windowWidth, windowHeight); // full window canvas
     c.parent("canvas-container");
     colorMode(HSB, 360, 100, 100, 100);
-    pixelDensity(1);
+    pixelDensity(4); // High-DPI rendering for crispness on Retina screens
 
     cacheDomRefs();
     updateSpeedLegend();
@@ -242,7 +250,7 @@ function resetDataHolders() {
     rows = [];
     bounds = { latMin:  1e9, latMax: -1e9, lonMin:  1e9, lonMax: -1e9 };
     range  = { altMin:  1e9, altMax: -1e9, spdMin: 1e9, spdMax: -1e9 };
-    startTimestampMs = null; endMs = null; trackDir = null;
+    startTimestampMs = null; endTimestampMs = null; trackDir = null;
     actualTakeOffMs = null; actualLandingMs = null;
     actualTakeOffTime = null; actualLandingTime = null;
 }
@@ -303,13 +311,12 @@ function splitCSVLine(line) {
             inQuotes = !inQuotes;
         }
         } else if (ch === ',' && !inQuotes) {
-        out.push(cur);
-        cur = '';
+            out.push(cur);
+            cur = '';
         } else {
-        cur += ch;
+            cur += ch;
         }
     }
-
     out.push(cur);
     return out;
 }
@@ -326,11 +333,11 @@ function unquote(s) {
 function parseFromCSVText(text) {
     // Reset all global data holders and ranges before parsing new data
     resetDataHolders();
-    if (!text) return;
+    if (!text) return; // empty input guard
 
     // Split the input text into lines, removing any empty lines
     const lines = text.split(/\r?\n/).filter(l => l.trim().length); // /\r?\n/ matches \n (Unix-style line endings) or \r\n (Windows-style).
-    if (!lines.length) return;
+    if (!lines.length) return; // empty input guard
 
     // Parse the header row and normalize header names
     const headers = splitCSVLine(lines[0]).map(h => h.trim());
@@ -411,7 +418,7 @@ function finalizeAfterRowsParsed() {
     const validTimes = rows.filter(r => Number.isFinite(r.timestampMs));
     if (validTimes.length) {
         startTimestampMs = validTimes[0].timestampMs;
-        endMs   = validTimes[validTimes.length - 1].timestampMs;
+        endTimestampMs   = validTimes[validTimes.length - 1].timestampMs;
     }
 
     // Takeoff detection: find the first row that has a valid timestamp (timestampMs)
@@ -575,15 +582,25 @@ function buildRosettePoints() {
     let pts = [];
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
-        const t = timeFracForRow(row, i, rows.length);
+        const t = timeFracForRow(row);
         const angle = HALF_PI + t * TWO_PI;
         const radius = baseR + map(row.alt, altMin, altMax, 0, varR, true); // map(value, inputMin, inputMax, outputMin, outputMax, [clamp])
         const x = center.x + cos(angle) * radius;
         const y = center.y + sin(angle) * radius;
         const idx = i;
         pts.push({
-        x, y, alt: row.alt, spd: row.spd, hdg: row.hdg, lat: row.lat, lon: row.lon, utc: row.utc, timestampMs: row.timestampMs, idx,
-        angle, radius
+            x,
+            y,
+            alt: row.alt,
+            spd: row.spd,
+            hdg: row.hdg,
+            lat: row.lat,
+            lon: row.lon,
+            utc: row.utc,
+            timestampMs: row.timestampMs,
+            idx,
+            angle,
+            radius
         });
     }
     pts.push(pts[0], pts[1]);
@@ -601,44 +618,43 @@ function lerpRGB(c0, c1, t) { // c0: start color [R, G, B], c1: end color [R, G,
 
 // Get color for a specific speed value and add smooth blending between bands
 function speedColor(spd) {
-    const SMOOTH_KT = 15; // size of the gradient zone at each boundary
+    const SMOOTH_KT = 15; // Width of the smoothing zone (in knots) around band boundaries
 
-    // Find which band the speed falls into
+    // Iterate through each defined speed band to find where the current speed falls
     for (let i = 0; i < SPEED_BANDS.length; i++) {
         const band = SPEED_BANDS[i];
         if (spd >= band.min && spd < band.max) {
-            let baseColor = band.color;
-            let gradientColor = baseColor;
+            // Default to this band's base color
+            let gradientColor = band.color;
 
-            // Blend IN from previous band near the lower boundary
+            // If near the lower edge of this band, blend with the previous band
             if (i > 0) {
-                // knots above this band's min (0 at boundary)
-                const distFromMin = spd - band.min; // distance above this band's lower limit (0 exactly at the boundary)
-                // only blend within the first SMOOTH_KT knots
+                const distFromMin = spd - band.min; // How far into this band the speed is
                 if (distFromMin < SMOOTH_KT) {
-                    const prevColor = SPEED_BANDS[i - 1].color; // previous band's RGB
-                    // 0 → use prevColor, 1 → use this band's color
-                    const t = constrain(distFromMin / SMOOTH_KT, 0, 1); // t = normalized blending factor (how far the speed is inside the smoothing zone), forced to stay within [0, 1].
-                    // mix prev → current based on t
-                    gradientColor = lerpRGB(prevColor, baseColor, t);
+                    const prevColor = SPEED_BANDS[i - 1].color;           // Color of the previous band
+                    const avgColor = lerpRGB(prevColor, band.color, 0.5); // Midpoint between prev and current
+                    const t = constrain(distFromMin / SMOOTH_KT, 0, 1);   // Normalized blend factor
+                    gradientColor = lerpRGB(avgColor, band.color, t);     // Blend toward current band from midpoint
                 }
             }
 
-            // Blend OUT to next band near the upper edge (if finite upper bound)
+            // If near the upper edge of this band, blend with the next band
             if (i < SPEED_BANDS.length - 1 && Number.isFinite(band.max)) {
-                const distToMax = band.max - spd; // distance above this band's upper limit (0 exactly at the boundary)
+                const distToMax = band.max - spd; // Distance to upper bound
                 if (distToMax < SMOOTH_KT) {
-                    const nextColor = SPEED_BANDS[i + 1].color;
-                    const t = constrain(1 - (distToMax / SMOOTH_KT), 0, 1);
-                    gradientColor = lerpRGB(gradientColor, nextColor, t);
+                    const nextColor = SPEED_BANDS[i + 1].color;             // Color of the next band
+                    const avgColor = lerpRGB(band.color, nextColor, 0.5);   // Midpoint between current and next
+                    const t = constrain(1 - (distToMax / SMOOTH_KT), 0, 1); // Normalized blend factor
+                    gradientColor = lerpRGB(gradientColor, avgColor, t);    // Blend current toward midpoint
                 }
             }
 
-            return { r: gradientColor[0], g: gradientColor[1], b: gradientColor[2], a: 92 };
+            // Return the final blended color with fixed alpha
+            return { r: gradientColor[0], g: gradientColor[1], b: gradientColor[2], a: 100 };
         }
     }
 
-    // Fallback: last band's color
+    // If no band matched (extremely high speed), fall back to the last band color
     const last = SPEED_BANDS[SPEED_BANDS.length - 1].color;
     return { r: last[0], g: last[1], b: last[2], a: 92 };
 }
@@ -667,19 +683,26 @@ function drawRosette() {
     for (let i = 0; i < pts.length - 2; i++) {
         const a = pts[i], b = pts[i + 1];
         if (i === rows.length - 1) continue;
-        const col = speedColor(a.spd);
-        const sw  = speedStrokeWeight(a.spd);
-        trail.stroke(col.r, col.g, col.b, col.a);
-        trail.strokeWeight(sw);
-
+        // Interpolate color and stroke weight per sub-segment
         const segs = 30;
         let px = a.x, py = a.y;
         for (let s = 1; s < segs; s++) {
             const t = s / segs;
-            const angleInterp = lerp(a.angle, b.angle, t); // parameters: lerp(start, end, fraction)
+
+            // Interpolate geometry
+            const angleInterp = lerp(a.angle, b.angle, t);
             const radiusInterp = lerp(a.radius, b.radius, t);
             const x1 = cos(angleInterp) * radiusInterp + center.x;
             const y1 = sin(angleInterp) * radiusInterp + center.y;
+
+            // Interpolate speed
+            const spdInterp = lerp(a.spd, b.spd, t);
+            const col = speedColor(spdInterp);
+            const sw  = speedStrokeWeight(spdInterp);
+            trail.stroke(col.r, col.g, col.b, col.a);
+            trail.strokeWeight(sw);
+
+            // Draw mini-segment
             trail.line(px, py, x1, y1);
             px = x1; py = y1;
         }
@@ -808,14 +831,14 @@ function drawTextAlongCircle(center, radius, label, angleCenter, outward = true,
 
 // ======= Interaction + math helpers (kept in section [4]) =======
 function getIndexFromMouse(center, count) {
-    const dx = mouseX - center.x;
-    const dy = mouseY - center.y;
-    let ang = Math.atan2(dy, dx);
-    let t = (ang - HALF_PI) % TWO_PI;
-    if (t < 0) t += TWO_PI;
-    t /= TWO_PI;
+    const dx = mouseX - center.x; // h offset between mouse and center of rosette
+    const dy = mouseY - center.y; // v offset between mouse and center of rosette
+    let ang = Math.atan2(dy, dx); // angle in radians
+    let t = (ang - HALF_PI) % TWO_PI; // rotate so 0 = top (12 o'clock), instead of 3 o'clock
+    if (t < 0) t += TWO_PI; // ensure t is in [0, 2π]
+    t /= TWO_PI; // normalize angle (progress) to [0, 1]. Fraction of the rosette
 
-    const targetimestampMs = startTimestampMs + t * (endMs - startTimestampMs);
+    const targetimestampMs = startTimestampMs + t * (endTimestampMs - startTimestampMs);
     let bestIdx = 0;
     let bestDiff = Infinity;
     for (let i = 0; i < rows.length; i++) {
@@ -848,7 +871,6 @@ function drawIndicator(pts, i) {
 }
 
 function drawHeadingViz(center, baseR, headingDeg) {
-    const L = baseR * 0.55;
     const ringR = baseR * 0.40;
 
     push();
@@ -899,7 +921,7 @@ function updateInfoCard(p) {
     const tStr = (Number.isFinite(p.timestampMs)) ? formatUTC(p.timestampMs) : '—';
     
     const takeMs = Number.isFinite(actualTakeOffMs) ? actualTakeOffMs : startTimestampMs;
-    const landMs = Number.isFinite(actualLandingMs) ? actualLandingMs : endMs;
+    const landMs = Number.isFinite(actualLandingMs) ? actualLandingMs : endTimestampMs;
 
     const since = (Number.isFinite(p.timestampMs) && Number.isFinite(takeMs) && p.timestampMs >= takeMs)
         ? formatHMS(p.timestampMs - takeMs)
@@ -960,7 +982,7 @@ let minimap = null;
 
 function createMinimap() {
     const sketch = (p) => {
-        let pad = 8;
+        let pad = 12;
         let projected = []; // [{x,y}]
         let bounds = null; // {minLat, maxLat, minLon, maxLon}
         let s = 1, offX = 0, offY = 0;
@@ -970,7 +992,7 @@ function createMinimap() {
             const w = host.clientWidth;
             const h = host.clientHeight;
             p.createCanvas(w, h);
-            p.pixelDensity(1);
+            p.pixelDensity(2);
             p.noLoop(); // redraw manually on demand
             p.clear();
             rebuild();
@@ -1020,8 +1042,12 @@ function createMinimap() {
         }
 
         function project(pt) {
-            // lon → x (L→R), lat → y (N up). p5 y grows down, so invert:
+            // Convert geographic coordinates to canvas coordinates
+            // X is derived from longitude, scaled by zoom factor `s` and shifted by offset `offX`
             const x = (pt.lon - bounds.minLon) * s + offX;
+
+            // Y is derived from latitude, also scaled and offset
+            // Invert the vertical axis (p5.js origin is top-left, but we want north-up)
             const y = p.height - ((pt.lat - bounds.minLat) * s + offY);
             return { x, y };
         }
@@ -1050,12 +1076,18 @@ function createMinimap() {
         }
 
         function drawPath() {
-            if (projected.length < 2) return;
-            p.noFill();
-            p.stroke(255, 128);
-            p.strokeWeight(1);
-            p.beginShape();
-            for (const pt of projected) p.vertex(pt.x, pt.y);
+            if (projected.length < 2) return; // Only draw if we have at least two points
+            p.noFill(); // Disable fill color 
+            p.stroke(255); // Set stroke color to solid white (RGB 255)
+            p.strokeWeight(2); 
+            p.beginShape(); // Begin drawing a continuous shape made of lines between vertices
+
+            // Loop through all projected points and define vertices
+            for (const pt of projected) { 
+                p.vertex(pt.x, pt.y); // Add each point as a vertex of the shape
+            }
+
+            // Finalize the shape
             p.endShape();
         }
 
@@ -1068,7 +1100,7 @@ function createMinimap() {
             // end = red
             const last = projected[projected.length - 1];
             p.fill(255, 0, 0, 220);
-            p.circle(last.x, last.y, 5);
+            p.circle(last.x, last.y, 6);
         }
 
         function drawCursor() {
@@ -1097,18 +1129,18 @@ let speedChart = null;
 
 function createSpeedChart() {
     const sketch = (p) => {
-        let pad = 16;                // internal padding
-        let pts = [];                // projected points [{x,y,timestampMs,spd}]
-        let sX = 1, offX = 0;        // mapping X (time)
-        let sY = 1, offY = 0;        // mapping Y (speed)
+        let padding = 16;                // internal padding
+        let projectedPoints = [];        // projected points [{x,y,timestampMs,spd}]
+        let scaleX = 1, offsetX = 0;     // mapping X (time)
+        let scaleY = 1, offsetY = 0;     // mapping Y (speed)
 
         p.setup = () => {
             const host = dom.flightSpeedHost;
             const w = host?.clientWidth || 300;
             const h = host?.clientHeight || 120;
             p.createCanvas(w, h);
-            p.pixelDensity(1);
-            p.noLoop();     // manual redraw
+            p.pixelDensity(2);
+            p.noLoop(); // manual redraw
             p.clear();
             p.canvas.style.pointerEvents = 'none';
             rebuild();
@@ -1126,42 +1158,42 @@ function createSpeedChart() {
         }
 
         function computeFit() {
-            if (!rows.length || !Number.isFinite(startTimestampMs) || !Number.isFinite(endMs) || endMs <= startTimestampMs) {
-                pts.length = 0; return;
+            if (!rows.length || !Number.isFinite(startTimestampMs) || !Number.isFinite(endTimestampMs) || endTimestampMs <= startTimestampMs) {
+                projectedPoints.length = 0; return;
             }
-            const innerW = Math.max(1, p.width  - pad*2);
-            const innerH = Math.max(1, p.height - pad*2);
+            const innerW = Math.max(1, p.width  - padding*2);
+            const innerH = Math.max(1, p.height - padding*2);
 
-            const tSpan = endMs - startTimestampMs; // total ms
-            sX = innerW / tSpan;           // px per ms
-            offX = pad;                    // left padding
+            const timeSpanMs = endTimestampMs - startTimestampMs; // total ms
+            scaleX = innerW / timeSpanMs;           // px per ms
+            offsetX = padding;                 // left padding
 
             // vertical scale from global speed range
             const spanY = Math.max(1e-6, range.spdMax - range.spdMin);
-            sY = innerH / spanY;
-            offY = pad; // vertical flip is in project()
+            scaleY = innerH / spanY;
+            offsetY = padding; // vertical flip is in project()
         }
 
         function project(row) {
-            const x = (row.timestampMs - startTimestampMs) * sX + offX;
+            const x = (row.timestampMs - startTimestampMs) * scaleX + offsetX;
             // y grows downward: spdMin → bottom, spdMax → top
-            const yVal = (row.spd - range.spdMin) * sY; // 0..innerH
-            const y = p.height - (yVal + offY);
+            const yVal = (row.spd - range.spdMin) * scaleY; // 0..innerH
+            const y = p.height - (yVal + offsetY);
             return { x, y };
         }
 
         function rebuild() {
-            pts.length = 0;
+            projectedPoints.length = 0;
             computeFit();
-            if (!rows.length || !Number.isFinite(startTimestampMs) || !Number.isFinite(endMs) || endMs <= startTimestampMs) return;
+            if (!rows.length || !Number.isFinite(startTimestampMs) || !Number.isFinite(endTimestampMs) || endTimestampMs <= startTimestampMs) return;
 
             for (const r of rows) {
                 if (Number.isFinite(r.timestampMs) && Number.isFinite(r.spd)) {
                     const pr = project(r);
-                    pts.push({ x: pr.x, y: pr.y, timestampMs: r.timestampMs, spd: r.spd });
+                    projectedPoints.push({ x: pr.x, y: pr.y, timestampMs: r.timestampMs, spd: r.spd });
                 }
             }
-            pts.sort((a,b) => a.timestampMs - b.timestampMs);
+            projectedPoints.sort((a,b) => a.timestampMs - b.timestampMs);
         }
 
         p.draw = () => {
@@ -1172,21 +1204,22 @@ function createSpeedChart() {
             drawLine();
             drawCursor();
         };
+        
         function drawAreaUnderLine() {
-            if (pts.length < 2) return;
+            if (projectedPoints.length < 2) return;
 
-            const yForSpeed = (v) => p.height - (((v - range.spdMin) * sY) + offY);
+            const yForSpeed = (v) => p.height - (((v - range.spdMin) * scaleY) + offsetY);
             const baselineY = yForSpeed(range.spdMin);
 
             p.noStroke();
             p.fill(255, 255, 255, 51);
 
             p.beginShape();
-            p.vertex(pts[0].x, baselineY);
-            for (const pt of pts) {
+            p.vertex(projectedPoints[0].x, baselineY);
+            for (const pt of projectedPoints) {
                 p.vertex(pt.x, pt.y);
             }
-            p.vertex(pts[pts.length - 1].x, baselineY);
+            p.vertex(projectedPoints[projectedPoints.length - 1].x, baselineY);
             p.endShape(p.CLOSE);
         }
 
@@ -1205,8 +1238,8 @@ function createSpeedChart() {
 
             // 2) Grid lines: baseline at 0 kt and every 100 kt up to floor(spdMax/100)*100
             const yForSpeed = (v) => {
-                const yVal = (v - range.spdMin) * sY;
-                return p.height - (yVal + offY);
+                const yVal = (v - range.spdMin) * scaleY;
+                return p.height - (yVal + offsetY);
             };
 
             if (Number.isFinite(range.spdMin) && Number.isFinite(range.spdMax)) {
@@ -1231,19 +1264,18 @@ function createSpeedChart() {
         }
 
         function drawLine() {
-            if (pts.length < 2) return;
+            if (projectedPoints.length < 2) return;
             p.noFill();
             p.stroke(255, 200);
             p.strokeWeight(2);
             p.beginShape();
-            for (const pt of pts) p.vertex(pt.x, pt.y);
+            for (const pt of projectedPoints) p.vertex(pt.x, pt.y);
             p.endShape();
         }
 
         function drawCursor() {
             const i = window.skyTrailState.cursorIndex;
-            if (!Number.isFinite(i)) return; // index is constrained upstream; rows[i] assumed to exist
-            if (!Number.isFinite(rows[i].timestampMs)) return;
+            if (!Number.isFinite(i) || !rows[i]) return; // Guard against undefined access
             const pr = project(rows[i]);
 
             p.stroke(255, 120);
@@ -1280,18 +1312,48 @@ function keyPressed() {
     }
     if (key === ' ') {
         cursorFollowMouse = !cursorFollowMouse;
-        dom.cursorStsInd.classList.toggle('show');
+        // Replace toggling .show with updating icon visibility and text
+        if (cursorFollowMouse) {
+            // Cursor just got enabled
+            dom.cursorOnIcon.style.display = 'block';
+            dom.cursorOffIcon.style.display = 'none';
+            dom.cursorStatusTitle.textContent = 'Cursor Enabled';
+            dom.cursorStatusSubtitle.innerHTML = 'Press <kbd>Space</kbd> to pause';
+            dom.canvasContainer.classList.remove('cursor-off');
+        } else {
+            // Cursor just got paused
+            dom.cursorOnIcon.style.display = 'none';
+            dom.cursorOffIcon.style.display = 'block';
+            dom.cursorStatusTitle.textContent = 'Cursor Paused';
+            dom.cursorStatusSubtitle.innerHTML = 'Press <kbd>Space</kbd> to enable';
+            dom.canvasContainer.classList.add('cursor-off');
+        }
         return false; // prevent page scroll
     }
 
-    // Arrow keys: step selection index by ±1 (only if follow-mouse is off)
-    if (keyCode === LEFT_ARROW || keyCode === RIGHT_ARROW) {
+    // Arrow keys: step selection index by ±1 (left/right) or ±10 (up/down) (only if follow-mouse is off)
+    if (keyCode === LEFT_ARROW || keyCode === RIGHT_ARROW || keyCode === UP_ARROW || keyCode === DOWN_ARROW) {
         if (!cursorFollowMouse) {
-            const delta = (keyCode === RIGHT_ARROW) ? 1 : -1;
-            const last = rows.length - 1;
-            selectedIdx = Math.max(0, Math.min(last, selectedIdx + delta));
+            let delta = 0;
+            if (keyCode === RIGHT_ARROW) delta = 1;
+            else if (keyCode === LEFT_ARROW) delta = -1;
+            else if (keyCode === UP_ARROW) delta = 10;
+            else if (keyCode === DOWN_ARROW) delta = -10;
+
+            // wrap around
+            let next = (selectedIdx + delta) % rows.length;
+            if (next < 0) next += rows.length; // ensure positive modulo for negatives
+            selectedIdx = next;
         }
         return false; // prevent page scroll
+    }
+
+    // Key I/O: I goes to data start, O goes to data end
+    if (key === 'i' || key === 'I') {
+        selectedIdx = 0;
+    }
+    if (key === 'o' || key === 'O') {
+        selectedIdx = rows.length - 1;
     }
 }
 
@@ -1363,7 +1425,7 @@ function niceCeilToStep(v, step) {
       return Math.ceil(v / step) * step;
 }
 
-function timeFracForRow(row, i, n) {
+function timeFracForRow(row) {
     const ms = row.timestampMs;
-    return (ms - startTimestampMs) / (endMs - startTimestampMs);
+    return (ms - startTimestampMs) / (endTimestampMs - startTimestampMs);
 }

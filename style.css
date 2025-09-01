@@ -6,10 +6,6 @@
     --sub: #a8b3c0;
 }
 
-html, body {
-    height: 100%;
-}
-
 body {
     margin: 0;
     background: var(--bg);
@@ -103,10 +99,14 @@ h1 {
     position: relative;
     min-height: 100dvh;
 }
+
 #canvas-container {
     position: absolute;
     inset: 0;
     cursor: none;
+}
+.cursor-off {
+    cursor: crosshair !important; /* Show crosshair when cursor is off */
 }
 
 .info-card {
@@ -123,9 +123,15 @@ h1 {
     backdrop-filter: blur(10px);
 }
 
-#left-info-card.info-card {
-    bottom: 24px;
+#left-info-card-top.info-card {
     left: 24px;
+}
+
+#left-info-card-bottom.info-card {
+    left: 24px;
+    top: unset;
+    bottom: 24px;
+    gap: 4px;
 }
 
 #right-info-card.info-card {
@@ -156,6 +162,22 @@ h1 {
     text-align: end;
 }
 
+.speed-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0px;
+    position: absolute;
+    left: 24px;
+    bottom: 116px;
+    padding: 16px;
+}
+
+.speed-legend .title {
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--sub);
+}
+
 .cursor-status-indicator {
     position: absolute;
     top: 24px;
@@ -168,9 +190,8 @@ h1 {
     border: 1px solid var(--ring);
     backdrop-filter: blur(10px);
     pointer-events: none;
-    padding: 8px 16px;
+    padding: 8px 16px 8px 12px;
     gap: 6px;
-    visibility: hidden;
 }
 
 .cursor-status-indicator svg {
@@ -178,8 +199,8 @@ h1 {
     height: 32px;
 }
 
-.show {
-    visibility: visible;
+#cursor-off-icon {
+    display: none;
 }
 
 .cursor-status-msg {
@@ -215,7 +236,7 @@ h1 {
 .strobes-control-options {
     display: flex;
     flex-direction: row;
-    gap: 16px;
+    gap: 8px;
 }
 
 .strobes-control-options label {
@@ -225,6 +246,22 @@ h1 {
     gap: 3px;
     font-size: 13px;
     cursor: pointer;
+    padding: 6px 12px 8px 4px;
+    font-weight: 600;
+    color: var(--txt);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--ring);
+    border-radius: 8px;
+    transition: background 140ms ease, border-color 140ms ease;
+}
+
+.strobes-control-options label:has(input:checked) {
+    border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.strobes-control-options label:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(121,184,255,0.65);
 }
 
 .opt-label-text {
@@ -270,10 +307,11 @@ body:has(#strobes-boeing:checked) .strobe {
 /* Boeing double blink (you already have this) */
 @keyframes strobeDoubleBlink {
   0%   { opacity: 0; }
-  5%   { opacity: 1; }
-  10%  { opacity: 0; }
-  15%  { opacity: 1; }
-  20%  { opacity: 0; }
+  6%   { opacity: 1; }
+  12%  { opacity: 0; }
+  14%  { opacity: 0; }
+  20%  { opacity: 1; }
+  26%  { opacity: 0; }
   100% { opacity: 0; }
 }
 
@@ -288,15 +326,6 @@ body:has(#strobes-boeing:checked) .strobe {
     bottom: 2px;
 }
 
-@keyframes strobeDoubleBlink {
-    0%   { opacity: 0; }
-    5%   { opacity: 1; }   /* quick ON */
-    10%  { opacity: 0; }   /* quick OFF */
-    15%  { opacity: 1; }   /* second quick ON */
-    20%  { opacity: 0; }   /* second quick OFF */
-    100% { opacity: 0; }   /* stay off until next cycle */
-}
-
 #flight-path-canvas, #flight-speed-canvas {
     pointer-events: none;
     width: 280px;
@@ -304,14 +333,13 @@ body:has(#strobes-boeing:checked) .strobe {
     border: 1px solid rgba(255,255,255,0.2);
     background-color: var(--bg);
     border-radius: 8px;
-    margin-bottom: 24px;
+    margin-bottom: 8px;
     z-index: 10;
     position: relative;
 }
 
 #flight-speed-canvas {
     height: 140px;
-    margin-bottom: 8px;
 }
 
 #flight-path-canvas svg {
@@ -368,7 +396,7 @@ body:has(#strobes-boeing:checked) .strobe {
     flex-direction: row;
     align-items: center;
     gap: 12px;
-    margin-bottom: 12px;
+    margin-bottom: 6px;
     color: var(--sub);
 }
 
@@ -377,8 +405,8 @@ body:has(#strobes-boeing:checked) .strobe {
 }
 
 .color-key {
-    width: 18px;
-    height: 18px;
+    width: 14px;
+    height: 14px;
     border-radius: 50%;
     background-color: red;
     

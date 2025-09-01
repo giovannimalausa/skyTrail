@@ -23,7 +23,7 @@
                     </div>
                 </div>
 
-                <p class="hint">Expected headers: <code>Timestamp, Position, Altitude, Speed, Heading, Callsign</code></p>
+                <p class="hint">Expected headers: <code>Timestamp, UTC, Callsign, Position, Altitude, Speed, Direction</code></p>
             </div>
         </section>
 
@@ -31,15 +31,7 @@
         <section id="dashboard" class="dashboard hidden">
             <div id="canvas-container"></div>
 
-            <aside id="left-info-card" class="info-card">
-                <div class="info-card-section">
-                    <div class="title">Flight Info</div>
-                    <div class="info-row"><span class="k">Callsign</span><span id="info-callsign" class="v">—</span></div>
-                    <div class="info-row"><span class="k">Takeoff Time</span><span id="info-actual-takeoff-time" class="v">—</span></div>
-                    <div class="info-row"><span class="k">Landing Time</span><span id="info-actual-landing-time" class="v">—</span></div>
-                    <div class="info-row"><span class="k">Total Flight Time</span><span id="info-total-flight-time" class="v">—</span></div>
-                </div>
-
+            <aside id="left-info-card-top" class="info-card">
                 <div class="info-card-section">
                     <div class="title">Point Details</div>
                     <div class="info-row"><span class="k">Date/Time</span><span id="info-date" class="v">—</span></div>
@@ -51,31 +43,48 @@
                     <div class="info-row"><span class="k">Altitude</span><span id="info-altitude" class="v">—</span></div>
                     <div class="info-row"><span class="k">Flight Path Angle</span><span id="info-tilt" class="v">—</span></div>
                 </div>
+            </aside>
 
-                <div class="info-card-section speed-legend">
-                    <div class="title">Speed Reference Key</div>
-                    <div class="speed-key-row">
-                        <div class="color-key" id="color-band-0"></div><span class="k">0-39 kt</span>
-                    </div>
-                    <div class="speed-key-row">
-                        <div class="color-key" id="color-band-1"></div><span class="k">40-159 kt</span>
-                    </div>
-                    <div class="speed-key-row">
-                        <div class="color-key" id="color-band-2"></div><span class="k">160-299 kt</span>
-                    </div>
-                    <div class="speed-key-row">
-                        <div class="color-key" id="color-band-3"></div><span class="k">300-419 kt</span>
-                    </div>
-                    <div class="speed-key-row">
-                        <div class="color-key" id="color-band-4"></div><span class="k">420-519 kt</span>
-                    </div>
-                    <div class="speed-key-row">
-                        <div class="color-key" id="color-band-5"></div><span class="k">520+ kt</span>
-                    </div>
+            <div class="info-card-section speed-legend">
+                <div class="title">Speed Reference Key</div>
+                <div class="speed-key-row">
+                    <div class="color-key" id="color-band-0"></div><span class="k">0-39 kt</span>
+                </div>
+                <div class="speed-key-row">
+                    <div class="color-key" id="color-band-1"></div><span class="k">40-159 kt</span>
+                </div>
+                <div class="speed-key-row">
+                    <div class="color-key" id="color-band-2"></div><span class="k">160-299 kt</span>
+                </div>
+                <div class="speed-key-row">
+                    <div class="color-key" id="color-band-3"></div><span class="k">300-419 kt</span>
+                </div>
+                <div class="speed-key-row">
+                    <div class="color-key" id="color-band-4"></div><span class="k">420-519 kt</span>
+                </div>
+                <div class="speed-key-row">
+                    <div class="color-key" id="color-band-5"></div><span class="k">520+ kt</span>
+                </div>
+            </div>
+
+            <aside id="left-info-card-bottom" class="info-card">
+                <div class="title">Cursor Strobes Style</div>
+                <div class="strobes-control-options">
+                    <label><input type="radio" name="strobes" id="strobes-airbus"><span class="opt-label-text">Airbus</span></label>
+                    <label><input type="radio" name="strobes" id="strobes-boeing" checked><span class="opt-label-text">Boeing</span></label>
+                    <label><input type="radio" name="strobes" id="strobes-off"><span class="opt-label-text">Stealth</span></label>
                 </div>
             </aside>
 
             <aside id="right-info-card" class="info-card">
+                <div class="info-card-section">
+                    <div class="title">Flight Info</div>
+                    <div class="info-row"><span class="k">Callsign</span><span id="info-callsign" class="v">—</span></div>
+                    <div class="info-row"><span class="k">Takeoff Time</span><span id="info-actual-takeoff-time" class="v">—</span></div>
+                    <div class="info-row"><span class="k">Landing Time</span><span id="info-actual-landing-time" class="v">—</span></div>
+                    <div class="info-row"><span class="k">Total Flight Time</span><span id="info-total-flight-time" class="v">—</span></div>
+                </div>
+
                 <div class="info-card-section">
                     <div class="title">Flight Path</div>
                     <div id="flight-path-canvas">
@@ -90,16 +99,6 @@
                     <div id="flight-speed-canvas"></div>
                     <div class="info-row"><span class="k">Max Speed</span><span id="max-speed" class="v">—</span></div>
                     <div class="info-row"><span class="k">Average Speed in Flight</span><span id="avg-speed" class="v">—</span></div>
-                </div>
-
-                <div class="strobes-control">
-                    <div class="title">Cursor Strobes</div>
-                    <div class="strobes-control-options">
-                        <label><input type="radio" name="strobes" id="strobes-off"><span class="opt-label-text">Off</span></label>
-                        <label><input type="radio" name="strobes" id="strobes-airbus"><span class="opt-label-text">Airbus</span></label>
-                        <label><input type="radio" name="strobes" id="strobes-boeing" checked><span class="opt-label-text">Boeing</span></label>
-                    </div>
-                        
                 </div>
 
                 <div>
@@ -129,18 +128,24 @@
                 <div class="strobe" id="strobe-right"></div>
             </div>
 
+            <!-- Cursor Status Indicator -->
             <div class="cursor-status-indicator" id="cursor-status-indicator">
-                <svg width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <!-- SVG: cursor ON -->
+                <svg id="cursor-on-icon" width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M13.396 11.6895C13.8103 11.5905 14.2441 11.6077 14.6489 11.7402L37.7856 19.2949C38.2276 19.4428 38.6148 19.7211 38.896 20.0928C39.1773 20.4646 39.3398 20.9132 39.3618 21.3789C39.3839 21.8447 39.264 22.3064 39.019 22.7031C38.7741 23.0998 38.4149 23.4136 37.9888 23.6025L37.9409 23.6211L30.6919 26.4062L38.8677 34.5811C39.1929 34.9063 39.3755 35.3477 39.3755 35.8076C39.3754 36.2674 39.1927 36.7081 38.8677 37.0332L37.0337 38.8672C36.8726 39.0289 36.681 39.1576 36.4702 39.2451C36.2594 39.3326 36.0334 39.3779 35.8052 39.3779C35.5769 39.3779 35.3509 39.3326 35.1401 39.2451C34.9293 39.1576 34.7378 39.0289 34.5767 38.8672L26.4009 30.6914L23.6216 37.9414L23.6021 37.9893C23.4249 38.4016 23.1305 38.7527 22.7554 38.999C22.3799 39.2455 21.9398 39.3766 21.4907 39.375H21.3784C20.9103 39.3554 20.4589 39.1925 20.0864 38.9082C19.7139 38.6239 19.4378 38.2316 19.2954 37.7852L11.7407 14.6484C11.6082 14.2436 11.5909 13.8098 11.6899 13.3955C11.7889 12.9815 12.0003 12.6028 12.3013 12.3018C12.6025 12.0005 12.9817 11.7885 13.396 11.6895Z" fill="white"/>
+                </svg>
+                <!-- SVG: cursor OFF -->
+                <svg id="cursor-off-icon" width="50" height="50" viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <g opacity="0.75">
                         <path opacity="0.8" d="M37.7854 19.2949C38.2275 19.4429 38.6145 19.721 38.8958 20.0928C39.177 20.4646 39.3395 20.9132 39.3616 21.3789C39.3835 21.8443 39.2644 22.3056 39.0198 22.7021C38.7748 23.0989 38.4148 23.4126 37.9885 23.6016L37.9417 23.6201L30.6917 26.4053L38.8674 34.5801C39.1926 34.9053 39.3752 35.3467 39.3752 35.8066C39.3752 36.2666 39.1927 36.7079 38.8674 37.0332L37.0334 38.8672C36.8723 39.0288 36.6808 39.1576 36.47 39.2451C36.2593 39.3326 36.0331 39.377 35.8049 39.377C35.5767 39.3769 35.3506 39.3326 35.1399 39.2451C34.9291 39.1576 34.7375 39.0289 34.5764 38.8672L26.4006 30.6914L23.6213 37.9404L23.6028 37.9883C23.4256 38.4009 23.1305 38.7526 22.7551 38.999C22.3797 39.2455 21.9396 39.3756 21.4905 39.374H21.3782C20.9099 39.3544 20.4587 39.1916 20.0862 38.9072C19.7138 38.6229 19.4375 38.2306 19.2952 37.7842L17.8752 33.4375L33.4377 17.875L37.7854 19.2949ZM31.3059 17.1787L17.179 31.3047L15.7864 27.041L27.0413 15.7861L31.3059 17.1787ZM13.3958 11.6885C13.8101 11.5895 14.2438 11.6077 14.6487 11.7402L24.9094 15.0898L15.0901 24.9092L11.7405 14.6484C11.608 14.2436 11.5907 13.8098 11.6897 13.3955C11.7887 12.9813 11.9999 12.602 12.301 12.3008C12.6022 11.9996 12.9814 11.7875 13.3958 11.6885Z" fill="white"/>
                     </g>
                     <rect x="35.4148" y="7.41504" width="3.99801" height="40" rx="1.99901" transform="rotate(45 35.4148 7.41504)" fill="white"/>
                 </svg>
+
                 <div class="cursor-status-msg">
-                    Cursor Paused
-                    <span class="cursor-status-msg-subtitle">Press <kbd>Space</kbd> to activate</span>
+                    <span class="cursor-status-msg-title" id="cursor-status-title">Cursor Enabled</span>
+                    <span class="cursor-status-msg-subtitle">Press <kbd>Space</kbd> to pause</span>
                 </div>
-                
             </div>
         </section>
 
