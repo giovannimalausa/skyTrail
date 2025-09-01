@@ -18,7 +18,12 @@ let bounds = { latMin:  1e9, latMax: -1e9, lonMin:  1e9, lonMax: -1e9 }; // obje
 // Initialized with ±1e9 so first real value always replaces the default.
 let range  = { altMin:  1e9, altMax: -1e9, spdMin: 1e9, spdMax: -1e9 };
 
+// ============ Rosette Caching & Layer Buffers ============
 let trail; // Off-screen graphics buffer to draw persistent trail (rosette lines)
+let ringsLayer; // Off-screen buffer for static rings + labels + start/end marker
+let rosetteStaticDirty = true; // mark when rings/labels need redraw
+let rosetteTrailDirty  = true; // mark when the flight trail needs redraw
+const rosetteCache = { pts: null, center: null, baseR: 0, varR: 0 }; // cached geometry for reuse
 let trackDir = null; // Overall track direction: 'E' (eastbound) or 'W' (westbound)
 
 // DOM info card panel and references to its fields
@@ -174,6 +179,11 @@ function setup() {
         const onFiles = (files) => {
             const f = files && files[0];
             if (!f) return;
+            // Validate CSV extension
+            if (!f.name.toLowerCase().endsWith(".csv")) {
+                alert("Only .csv files are supported.");
+                return;
+            }
 
             const reader = new FileReader();
 
@@ -240,8 +250,14 @@ function windowResized() {
     trail = createGraphics(width, height);
     trail.colorMode(HSB, 360, 100, 100, 100);
     trail.clear();
+    // Recreate ringsLayer for static rings/labels
+    ringsLayer = createGraphics(width, height);
+    ringsLayer.colorMode(HSB, 360, 100, 100, 100);
+    ringsLayer.clear();
+    // Mark both layers dirty so they will be redrawn
+    rosetteStaticDirty = true;
+    rosetteTrailDirty  = true;
     background(0, 0, 10);
-    // (No overlay element DOM re-append needed; CSS handles stacking)
 }
 
 // ============================== [2] CSV PARSE HELPERS ===============================
@@ -253,6 +269,9 @@ function resetDataHolders() {
     startTimestampMs = null; endTimestampMs = null; trackDir = null;
     actualTakeOffMs = null; actualLandingMs = null;
     actualTakeOffTime = null; actualLandingTime = null;
+    // Clear rosette caches/flags so a new dataset rebuilds layers
+    rosetteCache.pts = null; rosetteCache.center = null; rosetteCache.baseR = 0; rosetteCache.varR = 0;
+    rosetteStaticDirty = true; rosetteTrailDirty = true;
 }
 
 function resetToWelcome() {
@@ -547,10 +566,16 @@ function finalizeAfterRowsParsed() {
     if (range.altMin === range.altMax) range.altMax = range.altMin + 1;
     if (range.spdMin === range.spdMax) range.spdMax = range.spdMin + 1;
 
-    // Reset trail buffer to fit current canvas and clear previous drawing
+    // Reset trail & rings layers to fit current canvas and clear previous drawing
     trail = createGraphics(width, height);
     trail.colorMode(HSB, 360, 100, 100, 100);
     trail.clear();
+    ringsLayer = createGraphics(width, height);
+    ringsLayer.colorMode(HSB, 360, 100, 100, 100);
+    ringsLayer.clear();
+    // Mark layers dirty so they will be rendered once in drawRosette()
+    rosetteStaticDirty = true;
+    rosetteTrailDirty  = true;
     // Ensure speed legend matches current band colors
     updateSpeedLegend();
     {
@@ -666,57 +691,84 @@ function speedStrokeWeight(spd) {
     return SW_MIN + (SW_MAX - SW_MIN) * t;
 }
 
-function drawRosette() {
-    if (!rows.length) return;
+// =================== Rosette Layer Caching & Redraw ===================
+// Render static rosette elements (rings, labels, start/end marker) into ringsLayer
+function renderRosetteStatic() {
+    if (!ringsLayer) {
+        ringsLayer = createGraphics(width, height);
+        ringsLayer.colorMode(HSB, 360, 100, 100, 100);
+    }
+    ringsLayer.clear();
+    const { center, baseR, varR } = rosetteCache;
+    // Draw altitude rings + labels onto the static layer
+    drawAltitudeRings(ringsLayer, center, baseR, varR);
+    // Draw the fixed start/end radial marker onto the static layer
+    drawStartEndMarker(ringsLayer, center, baseR, varR);
+    // Draw the altitude labels onto the static layer
+    if (UI.arcLabel && UI.arcLabel.length) {
+        const rLabel = baseR + varR + 14;
+        drawTextAlongCircle(ringsLayer, center, rLabel, UI.arcLabel, HALF_PI, false, 1, UI.arcLabelAlign);
+    }
+}
 
-    const { pts, center, baseR, varR } = buildRosettePoints();
-
-    background(0, 0, 8);
-
-    // Rings + labels
-    drawAltitudeRings(center, baseR, varR);
-
-    // Draw rosette on the offscreen buffer for crisp strokes
+// Render the flight trail polyline into the trail buffer once
+function renderRosetteTrail() {
+    if (!trail) {
+        trail = createGraphics(width, height);
+        trail.colorMode(HSB, 360, 100, 100, 100);
+    }
     trail.clear();
     trail.colorMode(RGB, 255, 255, 255, 100);
-
+    const { pts, center } = rosetteCache;
     for (let i = 0; i < pts.length - 2; i++) {
         const a = pts[i], b = pts[i + 1];
         if (i === rows.length - 1) continue;
-        // Interpolate color and stroke weight per sub-segment
         const segs = 30;
         let px = a.x, py = a.y;
         for (let s = 1; s < segs; s++) {
             const t = s / segs;
-
-            // Interpolate geometry
             const angleInterp = lerp(a.angle, b.angle, t);
             const radiusInterp = lerp(a.radius, b.radius, t);
             const x1 = cos(angleInterp) * radiusInterp + center.x;
             const y1 = sin(angleInterp) * radiusInterp + center.y;
-
-            // Interpolate speed
             const spdInterp = lerp(a.spd, b.spd, t);
             const col = speedColor(spdInterp);
             const sw  = speedStrokeWeight(spdInterp);
             trail.stroke(col.r, col.g, col.b, col.a);
             trail.strokeWeight(sw);
-
-            // Draw mini-segment
             trail.line(px, py, x1, y1);
             px = x1; py = y1;
         }
     }
-    image(trail, 0, 0);
+}
 
-    drawStartEndMarker(center, baseR, varR);
-
-    if (UI.arcLabel && UI.arcLabel.length) {
-        const rLabel = baseR + varR + 14;
-        drawTextAlongCircle(center, rLabel, UI.arcLabel, HALF_PI, false, 1, UI.arcLabelAlign);
+// Main rosette draw: use cached layers, only redraw when marked dirty.
+function drawRosette() {
+    if (!rows.length) return;
+    // If no cached geometry yet (or trail/static marked dirty), build it once
+    if (!rosetteCache.pts || rosetteTrailDirty || rosetteStaticDirty) {
+        const { pts, center, baseR, varR } = buildRosettePoints();
+        rosetteCache.pts = pts;
+        rosetteCache.center = center;
+        rosetteCache.baseR = baseR;
+        rosetteCache.varR = varR;
     }
-
-    // --- Interaction ---
+    // Re-render static layer if needed (rings + labels + start/end marker)
+    if (rosetteStaticDirty) {
+        renderRosetteStatic();
+        rosetteStaticDirty = false;
+    }
+    // Re-render the trail if needed
+    if (rosetteTrailDirty) {
+        renderRosetteTrail();
+        rosetteTrailDirty = false;
+    }
+    const { pts, center, baseR, varR } = rosetteCache;
+    background(0, 0, 8);
+    if (ringsLayer) image(ringsLayer, 0, 0);     // composite static rings/labels
+    if (trail) image(trail, 0, 0);               // composite cached trail
+    
+    // --- Dynamic overlays only ---
     if (cursorFollowMouse) {
         selectedIdx = getIndexFromMouse(center, pts.length - 2);
     }
@@ -728,62 +780,61 @@ function drawRosette() {
     speedChart.refresh();
 }
 
-function drawAltitudeRings(center, baseR, varR) {
+// Context-aware versions for static layer rendering
+function drawAltitudeRings(ctx, center, baseR, varR) {
     const altMax = range.altMax;
     const step = UI.ringStep;
     const maxAlt = niceCeilToStep(altMax, step);
     const minAlt = 0;
-
-    push();
-    textSize(8);
+    ctx.push();
+    ctx.textSize(8);
     for (let alt = minAlt; alt <= maxAlt; alt += step) {
         const rr = baseR + map(alt, 0, altMax, 0, varR, true);
         const fl = Math.round(alt / 100);
         const kft = Math.round(alt / 1000);
         const relevant = trackDir
-        ? (trackDir === 'E' ? (kft % 2 === 1) : (kft % 2 === 0))
-        : true;
-
-        noFill();
-        stroke(0, 0, 100, relevant ? UI.ringAlpha : UI.nonRelevantRingAlpha);
-        strokeWeight(relevant ? 2 : 1);
-        circle(center.x, center.y, rr * 2);
-
+            ? (trackDir === 'E' ? (kft % 2 === 1) : (kft % 2 === 0))
+            : true;
+        ctx.noFill();
+        ctx.stroke(0, 0, 100, relevant ? UI.ringAlpha : UI.nonRelevantRingAlpha);
+        ctx.strokeWeight(relevant ? 2 : 1);
+        ctx.circle(center.x, center.y, rr * 2);
         if (relevant) {
-            noStroke();
-            fill(0, 0, 100, UI.labelAlpha);
-            textAlign(CENTER, BOTTOM);
+            ctx.noStroke();
+            ctx.fill(0, 0, 100, UI.labelAlpha);
+            ctx.textAlign(CENTER, BOTTOM);
             const flStr = `FL${nf(fl, 3)}`;
-            text(flStr, center.x, center.y - rr - 2);
-            stroke(0, 0, 100, UI.ringAlpha);
+            ctx.text(flStr, center.x, center.y - rr - 2);
+            ctx.stroke(0, 0, 100, UI.ringAlpha);
         }
     }
-    pop();
-}
+    ctx.pop();
+    console.log("Altitude rings drawn");
 
-function drawStartEndMarker(center, baseR, varR) {
+}
+function drawStartEndMarker(ctx, center, baseR, varR) {
     const x = center.x;
     const y0 = center.y + baseR;
     const y1 = center.y + baseR + varR;
-    push();
-    stroke(0, 80, 90, 40);
-    strokeWeight(2);
-    line(x, y0, x, y1);
-    pop();
+    ctx.push();
+    ctx.stroke(0, 80, 90, 40);
+    ctx.strokeWeight(2);
+    ctx.line(x, y0, x, y1);
+    ctx.pop();
+    console.log("Start/End marker drawn");
 }
 
-function drawTextAlongCircle(center, radius, label, angleCenter, outward = true, letterSpacing = 1, align = 'center') {
-    if (!label || !label.length) return;
-    push();
-    noStroke();
-    fill(0, 0, 100, 85);
-    textAlign(CENTER, CENTER);
-    textSize(12);
+function drawTextAlongCircle(ctx, center, radius, label, angleCenter, outward = true, letterSpacing = 1, align = 'center') {
+    ctx.push();
+    ctx.noStroke();
+    ctx.fill(0, 0, 100, 85);
+    ctx.textAlign(CENTER, CENTER);
+    ctx.textSize(12);
 
     let total = 0;
     let widths = [];
     for (let i = 0; i < label.length; i++) {
-        const w = textWidth(label[i]);
+        const w = ctx.textWidth(label[i]);
         widths.push(w);
         total += w + (i ? letterSpacing : 0);
     }
@@ -800,11 +851,11 @@ function drawTextAlongCircle(center, radius, label, angleCenter, outward = true,
             a += (w / 2) / radius;
             const x = center.x + Math.cos(a) * radius;
             const y = center.y + Math.sin(a) * radius;
-            push();
-            translate(x, y);
-            rotate(a + HALF_PI);
-            text(ch, 0, 0);
-            pop();
+            ctx.push();
+            ctx.translate(x, y);
+            ctx.rotate(a + HALF_PI);
+            ctx.text(ch, 0, 0);
+            ctx.pop();
             a += (w / 2 + letterSpacing) / radius;
         }
     } else {
@@ -818,15 +869,16 @@ function drawTextAlongCircle(center, radius, label, angleCenter, outward = true,
             a -= (w / 2) / radius;
             const x = center.x + Math.cos(a) * radius;
             const y = center.y + Math.sin(a) * radius;
-            push();
-            translate(x, y);
-            rotate(a - HALF_PI);
-            text(ch, 0, 0);
-            pop();
+            ctx.push();
+            ctx.translate(x, y);
+            ctx.rotate(a - HALF_PI);
+            ctx.text(ch, 0, 0);
+            ctx.pop();
             a -= (w / 2 + letterSpacing) / radius;
         }
     }
-    pop();
+    ctx.pop();
+    console.log("Text around circle drawn");
 }
 
 // ======= Interaction + math helpers (kept in section [4]) =======
@@ -986,6 +1038,7 @@ function createMinimap() {
         let projected = []; // [{x,y}]
         let bounds = null; // {minLat, maxLat, minLon, maxLon}
         let s = 1, offX = 0, offY = 0;
+        let staticLayer = null; // off-screen buffer for static drawings (frame, path, endpoints)
 
         p.setup = () => {
             const host = dom.flightPathHost;
@@ -995,14 +1048,29 @@ function createMinimap() {
             p.pixelDensity(2);
             p.noLoop(); // redraw manually on demand
             p.clear();
+            // Build geometry once
             rebuild();
+            // Create static layer and render static content into it
+            staticLayer = p.createGraphics(w, h);
+            staticLayer.pixelDensity(2);
+            drawFrame(staticLayer);
+            drawPath(staticLayer);
+            drawEndpoints(staticLayer);
+            // Observe resize after initial render
             observeResize(host);
         };
 
         function observeResize(host) {
             const ro = new ResizeObserver(() => {
-                p.resizeCanvas(host.clientWidth, host.clientHeight);
+                const newW = host.clientWidth;
+                const newH = host.clientHeight;
+                p.resizeCanvas(newW, newH);
                 rebuild();
+                staticLayer = p.createGraphics(newW, newH);
+                staticLayer.pixelDensity(2);
+                drawFrame(staticLayer);
+                drawPath(staticLayer);
+                drawEndpoints(staticLayer);
                 p.redraw();
             });
             ro.observe(host);
@@ -1062,45 +1130,40 @@ function createMinimap() {
 
         p.draw = () => {
             p.clear();
-            drawFrame();
-            drawPath();
-            drawEndpoints();
+            if (staticLayer) p.image(staticLayer, 0, 0);
             drawCursor();
         };
 
-        function drawFrame() {
-            p.noFill();
-            p.stroke(255, 40);
-            p.strokeWeight(1);
-            p.rect(0.5, 0.5, p.width-1, p.height-1, 6);
+        function drawFrame(ctx) {
+            ctx.noFill();
+            ctx.stroke(255, 40);
+            ctx.strokeWeight(1);
+            ctx.rect(0.5, 0.5, ctx.width-1, ctx.height-1, 6);
+            console.log("Minimap frame drawn");
         }
 
-        function drawPath() {
-            if (projected.length < 2) return; // Only draw if we have at least two points
-            p.noFill(); // Disable fill color 
-            p.stroke(255); // Set stroke color to solid white (RGB 255)
-            p.strokeWeight(2); 
-            p.beginShape(); // Begin drawing a continuous shape made of lines between vertices
-
-            // Loop through all projected points and define vertices
-            for (const pt of projected) { 
-                p.vertex(pt.x, pt.y); // Add each point as a vertex of the shape
+        function drawPath(ctx) {
+            if (projected.length < 2) return;
+            ctx.noFill();
+            ctx.stroke(255);
+            ctx.strokeWeight(2);
+            ctx.beginShape();
+            for (const pt of projected) {
+                ctx.vertex(pt.x, pt.y);
             }
-
-            // Finalize the shape
-            p.endShape();
+            ctx.endShape();
         }
 
-        function drawEndpoints() {
+        function drawEndpoints(ctx) {
             if (!projected.length) return;
-            p.noStroke();
+            ctx.noStroke();
             // start = green
-            p.fill(0, 255, 0, 220);
-            p.circle(projected[0].x, projected[0].y, 5);
+            ctx.fill(0, 255, 0, 220);
+            ctx.circle(projected[0].x, projected[0].y, 5);
             // end = red
             const last = projected[projected.length - 1];
-            p.fill(255, 0, 0, 220);
-            p.circle(last.x, last.y, 6);
+            ctx.fill(255, 0, 0, 220);
+            ctx.circle(last.x, last.y, 6);
         }
 
         function drawCursor() {
@@ -1117,7 +1180,16 @@ function createMinimap() {
         }
 
         // Public hooks for when data or selection changes:
-        p.rebuild = () => { rebuild(); p.redraw(); };
+        p.rebuild = () => {
+            rebuild();
+            if (staticLayer) {
+                staticLayer.clear();
+                drawFrame(staticLayer);
+                drawPath(staticLayer);
+                drawEndpoints(staticLayer);
+            }
+            p.redraw();
+        };
         p.refresh = () => { p.redraw(); };
     };
 
@@ -1134,6 +1206,10 @@ function createSpeedChart() {
         let scaleX = 1, offsetX = 0;     // mapping X (time)
         let scaleY = 1, offsetY = 0;     // mapping Y (speed)
 
+        // --- Static chart layer: frame, axes, area, line (drawn once to off-screen buffer) ---
+        // This buffer holds all static chart elements (frame, axes, fill, line), redrawn only on resize/data change.
+        let chartStatic = null; // off-screen buffer for static chart layers (frame, axes, fill, line)
+
         p.setup = () => {
             const host = dom.flightSpeedHost;
             const w = host?.clientWidth || 300;
@@ -1143,15 +1219,36 @@ function createSpeedChart() {
             p.noLoop(); // manual redraw
             p.clear();
             p.canvas.style.pointerEvents = 'none';
+
+            // Build chart geometry once
             rebuild();
+
+            // Create the static buffer and render static elements into it
+            chartStatic = p.createGraphics(w, h);
+            chartStatic.pixelDensity(2);
+            drawFrame(chartStatic);
+            drawAxes(chartStatic);
+            drawAreaUnderLine(chartStatic);
+            drawLine(chartStatic);
+
             observeResize(host);
         };
 
+        // Observe canvas resize and rebuild static chart layer on size change
         function observeResize(host) {
             if (!host) return;
             const ro = new ResizeObserver(() => {
-                p.resizeCanvas(host.clientWidth, host.clientHeight);
+                const nw = host.clientWidth;
+                const nh = host.clientHeight;
+                p.resizeCanvas(nw, nh);
                 rebuild();
+                // Recreate the off-screen buffer at the new size to redraw static chart elements (frame, axes, area, line)
+                chartStatic = p.createGraphics(nw, nh);
+                chartStatic.pixelDensity(2);
+                drawFrame(chartStatic);
+                drawAxes(chartStatic);
+                drawAreaUnderLine(chartStatic);
+                drawLine(chartStatic);
                 p.redraw();
             });
             ro.observe(host);
@@ -1196,97 +1293,93 @@ function createSpeedChart() {
             projectedPoints.sort((a,b) => a.timestampMs - b.timestampMs);
         }
 
+        // Main draw: composite static chart layer, then draw cursor
+        // Only the cursor is drawn each frame; static chart is cached in chartStatic buffer.
         p.draw = () => {
             p.clear();
-            drawFrame();
-            drawAxes();
-            drawAreaUnderLine();
-            drawLine();
+            if (chartStatic) p.image(chartStatic, 0, 0);
             drawCursor();
         };
         
-        function drawAreaUnderLine() {
+        // Draw area under the speed line (static layer)
+        function drawAreaUnderLine(ctx = p) {
             if (projectedPoints.length < 2) return;
-
-            const yForSpeed = (v) => p.height - (((v - range.spdMin) * scaleY) + offsetY);
+            // Accepts drawing context (ctx = p5 or PGraphics)
+            const yForSpeed = (v) => ctx.height - (((v - range.spdMin) * scaleY) + offsetY);
             const baselineY = yForSpeed(range.spdMin);
-
-            p.noStroke();
-            p.fill(255, 255, 255, 51);
-
-            p.beginShape();
-            p.vertex(projectedPoints[0].x, baselineY);
+            ctx.noStroke();
+            ctx.fill(255, 255, 255, 51);
+            ctx.beginShape();
+            ctx.vertex(projectedPoints[0].x, baselineY);
             for (const pt of projectedPoints) {
-                p.vertex(pt.x, pt.y);
+                ctx.vertex(pt.x, pt.y);
             }
-            p.vertex(projectedPoints[projectedPoints.length - 1].x, baselineY);
-            p.endShape(p.CLOSE);
+            ctx.vertex(projectedPoints[projectedPoints.length - 1].x, baselineY);
+            ctx.endShape(ctx.CLOSE);
         }
 
-        function drawFrame() {
-            p.noFill();
-            p.stroke(255, 40);
-            p.strokeWeight(1);
-            p.rect(0.5, 0.5, p.width-1, p.height-1, 6);
+        // Draw chart frame (static layer)
+        function drawFrame(ctx) {
+            ctx.noFill();
+            ctx.stroke(255, 40);
+            ctx.strokeWeight(1);
+            ctx.rect(0.5, 0.5, ctx.width-1, ctx.height-1, 6);
         }
 
-        function drawAxes() {
+        // Draw axes and grid lines (static layer)
+        function drawAxes(ctx) {
             // 1) Update DOM with max speed
             if (dom.maxSpeed && Number.isFinite(range.spdMax)) {
                 dom.maxSpeed.textContent = Math.round(range.spdMax) + ' kt';
             }
-
             // 2) Grid lines: baseline at 0 kt and every 100 kt up to floor(spdMax/100)*100
             const yForSpeed = (v) => {
                 const yVal = (v - range.spdMin) * scaleY;
-                return p.height - (yVal + offsetY);
+                return ctx.height - (yVal + offsetY);
             };
-
             if (Number.isFinite(range.spdMin) && Number.isFinite(range.spdMax)) {
                 const y0raw = yForSpeed(0);
-                const y0 = Math.max(1, Math.min(p.height - 1, Math.round(y0raw) + 0.5));
-                p.stroke(255, 120);
-                p.strokeWeight(1);
-                p.line(1, y0, p.width - 1, y0);
+                const y0 = Math.max(1, Math.min(ctx.height - 1, Math.round(y0raw) + 0.5));
+                ctx.stroke(255, 120);
+                ctx.strokeWeight(1);
+                ctx.line(1, y0, ctx.width - 1, y0);
             }
-
             if (Number.isFinite(range.spdMax)) {
-                const maxHundred = Math.floor(range.spdMax / 100) * 100; // e.g., 340 → 300
+                const maxHundred = Math.floor(range.spdMax / 100) * 100;
                 for (let v = 100; v <= maxHundred; v += 100) {
                     const y = yForSpeed(v);
-                    if (y >= 0 && y <= p.height) {
-                        p.stroke(255, 60);
-                        p.strokeWeight(1);
-                        p.line(1, Math.round(y) + 0.5, p.width - 1, Math.round(y) + 0.5);
+                    if (y >= 0 && y <= ctx.height) {
+                        ctx.stroke(255, 60);
+                        ctx.strokeWeight(1);
+                        ctx.line(1, Math.round(y) + 0.5, ctx.width - 1, Math.round(y) + 0.5);
                     }
                 }
             }
         }
 
-        function drawLine() {
+        // Draw the polyline for the speed data (static layer)
+        function drawLine(ctx) {
             if (projectedPoints.length < 2) return;
-            p.noFill();
-            p.stroke(255, 200);
-            p.strokeWeight(2);
-            p.beginShape();
-            for (const pt of projectedPoints) p.vertex(pt.x, pt.y);
-            p.endShape();
+            ctx.noFill();
+            ctx.stroke(255, 200);
+            ctx.strokeWeight(2);
+            ctx.beginShape();
+            for (const pt of projectedPoints) ctx.vertex(pt.x, pt.y);
+            ctx.endShape();
         }
 
+        // Draw the cursor (vertical line and dot) for the current selection (dynamic, not cached)
         function drawCursor() {
             const i = window.skyTrailState.cursorIndex;
             if (!Number.isFinite(i) || !rows[i]) return; // Guard against undefined access
             const pr = project(rows[i]);
-
             p.stroke(255, 120);
             p.strokeWeight(1);
             p.line(pr.x, 0, pr.x, p.height);
-
             if (Number.isFinite(rows[i].spd)) {
                 p.noStroke();
                 p.fill(255, 255, 0, 230);
                 p.circle(pr.x, pr.y, 5);
-
                 p.fill(255);
                 p.textSize(10);
                 p.textAlign(p.LEFT, p.BOTTOM);
@@ -1297,7 +1390,18 @@ function createSpeedChart() {
             }
         }
 
-        p.rebuild = () => { rebuild(); p.redraw(); };
+        // Rebuild geometry and static chart layer when data changes
+        p.rebuild = () => {
+            rebuild();
+            if (chartStatic) {
+                chartStatic.clear();
+                drawFrame(chartStatic);
+                drawAxes(chartStatic);
+                drawAreaUnderLine(chartStatic);
+                drawLine(chartStatic);
+            }
+            p.redraw();
+        };
         p.refresh = () => { p.redraw(); };
     };
 
