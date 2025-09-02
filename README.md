@@ -17,6 +17,14 @@ To work properly, skyTrail requires structured flight data (in CSV format) with 
 
 Try SkyTrail here: https://giovannimalausa.github.io/skyTrail/.
 
+## Sample Data
+
+The _Sample CSVs_ folder contains:
+
+- **EK88_3bae98e4.csv** (long flight, eastbound, incomplete data)
+- **EK93_3bd5a240.csv** (long flight, westbound)
+- **LX1661_3be1d3f4.csv** (short flight, westbound)
+
 ## Context
 
 This project was developed for the _Shapes and Algorithms_ course at Politecnico di Milano, and serves as a study on how algorithms can turn numerical datasets into meaningful, visual narratives.
