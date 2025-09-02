@@ -765,8 +765,8 @@ function drawRosette() {
     }
     const { pts, center, baseR, varR } = rosetteCache;
     background(0, 0, 8);
-    if (ringsLayer) image(ringsLayer, 0, 0);     // composite static rings/labels
-    if (trail) image(trail, 0, 0);               // composite cached trail
+    if (ringsLayer) image(ringsLayer, 0, 0); // composite static rings/labels
+    if (trail) image(trail, 0, 0);           // composite cached trail
     
     // --- Dynamic overlays only ---
     if (cursorFollowMouse) {
@@ -1148,7 +1148,7 @@ function createMinimap() {
             ctx.stroke(255);
             ctx.strokeWeight(2);
             ctx.beginShape();
-            for (const pt of projected) {
+            for (const pt of projected) { // On each iteration, one element of the array is assigned to pt (const within that iteration of the loop)
                 ctx.vertex(pt.x, pt.y);
             }
             ctx.endShape();
@@ -1262,8 +1262,8 @@ function createSpeedChart() {
             const innerH = Math.max(1, p.height - padding*2);
 
             const timeSpanMs = endTimestampMs - startTimestampMs; // total ms
-            scaleX = innerW / timeSpanMs;           // px per ms
-            offsetX = padding;                 // left padding
+            scaleX = innerW / timeSpanMs; // px per ms
+            offsetX = padding; // left padding
 
             // vertical scale from global speed range
             const spanY = Math.max(1e-6, range.spdMax - range.spdMin);
