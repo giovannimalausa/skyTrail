@@ -21,9 +21,9 @@ Try SkyTrail here: https://giovannimalausa.github.io/skyTrail/.
 
 The [_Sample CSVs_](Sample%20CSVs/) folder contains:
 
-- [**EK88_3bae98e4.csv**](Sample%20CSVs_/EK88_3bae98e4.csv) (long flight, eastbound, incomplete data)
-- [**EK93_3bd5a240.csv**](Sample%20CSVs_/EK93_3bd5a240.csv) (long flight, westbound)
-- [**LX1661_3be1d3f4.csv**](Sample%20CSVs_/LX1661_3be1d3f4.csv) (short flight, westbound)
+- [**EK88_3bae98e4.csv**](Sample%20CSVs/EK88_3bae98e4.csv) (long flight, eastbound, incomplete data)
+- [**EK93_3bd5a240.csv**](Sample%20CSVs/EK93_3bd5a240.csv) (long flight, westbound)
+- [**LX1661_3be1d3f4.csv**](Sample%20CSVs/LX1661_3be1d3f4.csv) (short flight, westbound)
 
 ## Context
 
