@@ -287,13 +287,14 @@ body:has(#strobes-off:checked) .strobe {
 /* Airbus: single rapid blink */
 body:has(#strobes-airbus:checked) .strobe {
   visibility: visible;
-  animation: strobeSingleBlink 1.2s infinite;
+  animation: strobeDoubleBlink 1.5s infinite;
 }
 
 /* Boeing: double rapid blink */
 body:has(#strobes-boeing:checked) .strobe {
   visibility: visible;
-  animation: strobeDoubleBlink 1.5s infinite;
+  animation: strobeSingleBlink 1.2s infinite;
+  
 }
 
 /* Airbus single blink keyframes */
